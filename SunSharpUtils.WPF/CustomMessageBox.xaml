@@ -1,0 +1,38 @@
+﻿<Window x:Class="SunSharpUtils.WPF.CustomMessageBox"
+		xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+		xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+		xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+		xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+		xmlns:local="clr-namespace:SunSharpUtils.WPF"
+		mc:Ignorable="d"
+		
+		d:Title="Example title"
+		
+		WindowStartupLocation="CenterScreen"
+		SizeToContent="WidthAndHeight"
+		ResizeMode="NoResize"
+		
+		>
+	<Grid>
+		<TextBlock HorizontalAlignment="Left" Margin="0,0,120,0" Visibility="Hidden" Text="{Binding Title, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:CustomMessageBox}}}" />
+		<DockPanel Margin="7">
+			<StackPanel x:Name="sp_buttons" Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Bottom" Margin="50,0,0,0">
+				<StackPanel.Resources>
+					<Style TargetType="Button">
+						<Setter Property="VerticalAlignment" Value="Bottom" />
+						<Setter Property="Margin" Value="3,0,0,0" />
+						<Setter Property="Padding" Value="3,1,3,1" />
+						<Style.Resources>
+							<Style TargetType="Border">
+								<Setter Property="CornerRadius" Value="5" />
+							</Style>
+						</Style.Resources>
+					</Style>
+				</StackPanel.Resources>
+				<d:Button Content="Yes" />
+				<d:Button Content="No" />
+			</StackPanel>
+			<TextBlock x:Name="tb_body" d:Text="Example contents" Margin="0,0,0,5" />
+		</DockPanel>
+	</Grid>
+</Window>

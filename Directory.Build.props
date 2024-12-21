@@ -1,0 +1,29 @@
+﻿
+
+
+<Project>
+	
+	<PropertyGroup>
+		<TargetFramework>net8.0-windows</TargetFramework>
+		<Nullable>enable</Nullable>
+		<NoWarn>1701;1702;CA1416</NoWarn>
+		<LangVersion>latest</LangVersion>
+	</PropertyGroup>
+	
+	<PropertyGroup>
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<Authors>SunSerega</Authors>
+		<PackageOutputPath>$(MSBuildThisFileDirectory)\0Deployed</PackageOutputPath>
+		
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<!--<NoWarn>$(NoWarn);CS1591</NoWarn>-->
+	</PropertyGroup>
+	
+	<Target Name="DeleteLocalCache" BeforeTargets="Pack">
+		<RemoveDir Directories="$(NugetPackageRoot)/$(PackageId.ToLower())"/>
+		<Message Text="Local cache deleted" Importance="high"/>
+	</Target>
+	
+</Project>
+
+

@@ -1,0 +1,11 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	
+	<PropertyGroup>
+		<UseWPF>true</UseWPF>
+	</PropertyGroup>
+	
+	<ItemGroup>
+		<ProjectReference Include="..\SunSharpUtils\SunSharpUtils.csproj" />
+	</ItemGroup>
+	
+</Project>

@@ -1,0 +1,45 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.12.35527.113 d17.12
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SunSharpUtils.Threading", "SunSharpUtils.Threading\SunSharpUtils.Threading.csproj", "{A25B4200-CA9D-4C78-9F50-E95975EA683F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{0194D348-CBEF-4BDC-A24C-447F4D2E5977}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		.gitignore = .gitignore
+		Directory.Build.props = Directory.Build.props
+		ProjectPublish.ps1 = ProjectPublish.ps1
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SunSharpUtils", "SunSharpUtils\SunSharpUtils.csproj", "{BCEF371B-BE6B-4AEE-AFE5-3D97BE81D53D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SunSharpUtils.WPF", "SunSharpUtils.WPF\SunSharpUtils.WPF.csproj", "{37788EEB-C838-4035-A3B0-C6B441643055}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A25B4200-CA9D-4C78-9F50-E95975EA683F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A25B4200-CA9D-4C78-9F50-E95975EA683F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A25B4200-CA9D-4C78-9F50-E95975EA683F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A25B4200-CA9D-4C78-9F50-E95975EA683F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BCEF371B-BE6B-4AEE-AFE5-3D97BE81D53D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BCEF371B-BE6B-4AEE-AFE5-3D97BE81D53D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BCEF371B-BE6B-4AEE-AFE5-3D97BE81D53D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BCEF371B-BE6B-4AEE-AFE5-3D97BE81D53D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{37788EEB-C838-4035-A3B0-C6B441643055}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{37788EEB-C838-4035-A3B0-C6B441643055}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{37788EEB-C838-4035-A3B0-C6B441643055}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{37788EEB-C838-4035-A3B0-C6B441643055}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {5467FF5A-A832-4C95-B248-14FFBEF75E3C}
+	EndGlobalSection
+EndGlobal

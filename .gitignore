@@ -1,0 +1,13 @@
+﻿
+
+
+/.vs/
+
+*/bin/
+*/obj/
+
+*.csproj.user
+
+/0Deployed/*.nupkg
+
+
