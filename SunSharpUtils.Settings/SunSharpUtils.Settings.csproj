@@ -1,0 +1,10 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	
+	<PropertyGroup>
+	</PropertyGroup>
+	
+	<ItemGroup>
+		<ProjectReference Include="..\SunSharpUtils.Threading\SunSharpUtils.Threading.csproj" />
+	</ItemGroup>
+	
+</Project>
