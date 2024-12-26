@@ -7,9 +7,16 @@ using System.Collections.Concurrent;
 
 namespace SunSharpUtils.Threading;
 
-internal readonly struct DelayedUpdateSpec
+/// <summary>
+/// Represents a specification for a delayed update
+/// </summary>
+public readonly struct DelayedUpdateSpec
 {
+    /// <summary>
+    /// </summary>
     public readonly DateTime earliest_time;
+    /// <summary>
+    /// </summary>
     public readonly DateTime urgent_time;
 
     private DelayedUpdateSpec(DateTime earliest_time, DateTime urgent_time)
@@ -18,21 +25,38 @@ internal readonly struct DelayedUpdateSpec
         this.urgent_time = urgent_time;
     }
 
-    public static DelayedUpdateSpec FromDelay(TimeSpan delay, bool can_delay_further)
+    /// <summary>
+    /// </summary>
+    public static DelayedUpdateSpec FromDelay(TimeSpan earliest_delay, TimeSpan urgent_delay)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(delay, TimeSpan.Zero);
-        var time = DateTime.Now + delay;
-        if (can_delay_further)
-            return new(time, DateTime.MaxValue);
-        else
-            // Why earliest_time is also set:
-            // If the previous delay was 1s and the new delay is urgent 2s, do still delay for 2s
-            return new(time, time);
+        ArgumentOutOfRangeException.ThrowIfLessThan(urgent_delay, earliest_delay);
+        ArgumentOutOfRangeException.ThrowIfLessThan(earliest_delay, TimeSpan.Zero);
+        var now = DateTime.Now;
+        return new(now + earliest_delay, now + urgent_delay);
     }
 
-    public TimeSpan GetRemainingWait() => earliest_time - DateTime.Now;
+    /// <summary>
+    /// </summary>
+    public static DelayedUpdateSpec Now => FromDelay(TimeSpan.Zero, TimeSpan.Zero);
 
-    public static DelayedUpdateSpec Combine(DelayedUpdateSpec prev, DelayedUpdateSpec next, out bool need_ev_set)
+    /// <summary>
+    /// Creates delay to postpone the update by <paramref name="delay"/> relative to now
+    /// </summary>
+    /// <param name="delay"></param>
+    /// <returns></returns>
+    public static DelayedUpdateSpec Postpone(TimeSpan delay) => FromDelay(delay, TimeSpan.MaxValue);
+
+    /// <summary>
+    /// Creates delay to trigger update no later than <paramref name="delay"/> relative to now              <br/>
+    /// Additionally, makes sure update doesn't happen earlier, unless overridden by a more urgent trigger  <br/>
+    /// </summary>
+    /// <param name="delay"></param>
+    /// <returns></returns>
+    public static DelayedUpdateSpec Urgent(TimeSpan delay) => FromDelay(delay, delay);
+
+    internal TimeSpan GetRemainingWait() => earliest_time - DateTime.Now;
+
+    internal static DelayedUpdateSpec Combine(DelayedUpdateSpec prev, DelayedUpdateSpec next, out bool need_ev_set)
     {
         need_ev_set = false;
 
@@ -52,10 +76,18 @@ internal readonly struct DelayedUpdateSpec
         return new(earliest_time, urgent_time);
     }
 
+    /// <summary>
+    /// </summary>
     public static bool operator ==(DelayedUpdateSpec a, DelayedUpdateSpec b) => a.earliest_time == b.earliest_time && a.urgent_time == b.urgent_time;
+    /// <summary>
+    /// </summary>
     public static bool operator !=(DelayedUpdateSpec a, DelayedUpdateSpec b) => !(a == b);
+    /// <summary>
+    /// </summary>
     public override bool Equals(object? obj) => obj is DelayedUpdateSpec spec && this == spec;
 
+    /// <summary>
+    /// </summary>
     public override int GetHashCode() => HashCode.Combine(earliest_time, urgent_time);
 
 }
@@ -172,17 +204,24 @@ public class DelayedUpdater
     }
 
     /// <summary>
-    /// Triggers an update in the future, or delays the update by <paramref name="delay"/> relative to now if already requested                 <br />
-    /// If <paramref name="can_delay_further"/> is false, other calls to this function will not be able to delay the update further             <br />
+    /// Triggers an update in future, or delays an already requested one
     /// </summary>
-    /// <param name="delay"></param>
-    /// <param name="can_delay_further"></param>
-    public void Trigger(TimeSpan delay, bool can_delay_further)
+    /// <param name="spec"></param>
+    public void Trigger(DelayedUpdateSpec spec)
     {
-        var next_time = DelayedUpdateSpec.FromDelay(delay, can_delay_further);
-        if (activation.TryUpdate(next_time))
+        if (activation.TryUpdate(spec))
             ev.Set();
     }
+
+    /// <summary>
+    /// </summary>
+    public void TriggerNow() => Trigger(DelayedUpdateSpec.Now);
+    /// <summary>
+    /// </summary>
+    public void TriggerPostpone(TimeSpan delay) => Trigger(DelayedUpdateSpec.Postpone(delay));
+    /// <summary>
+    /// </summary>
+    public void TriggerUrgent(TimeSpan delay) => Trigger(DelayedUpdateSpec.Urgent(delay));
 
     /// <summary>
     /// </summary>
@@ -271,22 +310,16 @@ public class DelayedMultiUpdater<TKey>
     }
 
     /// <summary>
-    /// Triggers an update to <paramref name="key"/> in the future, or delays the update by <paramref name="delay"/> relative to now if already requested   <br />
-    /// If <paramref name="can_delay_further"/> is false, other calls to this function will not be able to delay the update further                         <br />
-    /// If <paramref name="can_delay_further"/> is null, trying to delay the update further will throw an exception                                         <br />
+    /// Triggers an update to <paramref name="key"/> in future, or delays an already requested one
     /// </summary>
     /// <param name="key"></param>
-    /// <param name="delay"></param>
-    /// <param name="can_delay_further"></param>
-    /// <exception cref="InvalidOperationException"></exception>
-    public void Trigger(TKey key, TimeSpan delay, bool? can_delay_further)
+    /// <param name="spec"></param>
+    public void Trigger(TKey key, DelayedUpdateSpec spec)
     {
-        var next_val = DelayedUpdateSpec.FromDelay(delay, can_delay_further??false);
+        var next_val = spec;
         var need_ev_set = true;
         updatables.AddOrUpdate(key, next_val, (key, prev_val) =>
         {
-            if (can_delay_further is null)
-                throw new InvalidOperationException();
             next_val = DelayedUpdateSpec.Combine(prev_val, next_val, out need_ev_set);
             if (prev_val == next_val)
                 need_ev_set = false;
@@ -295,6 +328,16 @@ public class DelayedMultiUpdater<TKey>
         if (need_ev_set)
             ev.Set();
     }
+
+    /// <summary>
+    /// </summary>
+    public void TriggerNow(TKey key) => Trigger(key, DelayedUpdateSpec.Now);
+    /// <summary>
+    /// </summary>
+    public void TriggerPostpone(TKey key, TimeSpan delay) => Trigger(key, DelayedUpdateSpec.Postpone(delay));
+    /// <summary>
+    /// </summary>
+    public void TriggerUrgent(TKey key, TimeSpan delay) => Trigger(key, DelayedUpdateSpec.Urgent(delay));
 
     /// <summary>
     /// </summary>
