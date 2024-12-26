@@ -17,26 +17,32 @@ public sealed class MessageException(string message) : Exception(message)
 /// </summary>
 public static class Err
 {
-
     /// <summary>
-    /// Handle this to define how errors are handled                    <br />
-    ///                                                                 <br />
-    /// Predefined handlers:                                            <br />
-    /// - WPF: call SunSharpUtils.WPF.Common.Init                       <br />
-    ///     (opens a MessageBox with the error message)                 <br />
     /// </summary>
-    public static event Action<Exception>? OnError;
+    public readonly record struct DelegateStore
+    {
+        /// <summary>
+        /// Error handler
+        /// </summary>
+        public Action<Exception> Handle { get; init; }
+    }
+    private static DelegateStore? delegate_store = null;
+    private static DelegateStore D => delegate_store ?? throw new InvalidOperationException("Err.Init() not called");
 
     /// <summary>
-    /// Use defined error handler                   <br />
-    /// Throws if no handler is defined             <br />
+    /// </summary>
+    public static void Init(DelegateStore delegate_store)
+    {
+        if (Err.delegate_store is not null)
+            throw new InvalidOperationException("Err.Init() called twice");
+        Err.delegate_store = delegate_store;
+    }
+
+    /// <summary>
     /// </summary>
     /// <param name="e"></param>
     /// <exception cref="Exception"></exception>
-    public static void Handle(Exception e)
-    {
-        (OnError??throw new Exception("No error handler", e))(e);
-    }
+    public static void Handle(Exception e) => D.Handle(e);
 
     /// <summary>
     /// Executes body action, using <see cref="Handle(Exception)"/> to handle any exception

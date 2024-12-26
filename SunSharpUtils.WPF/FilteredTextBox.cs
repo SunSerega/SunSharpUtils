@@ -74,7 +74,7 @@ public class FilteredTextBox<T> : ContentControl
     /// <param name="valid_enter"></param>
     /// <param name="invalid_enter_tb"></param>
     public FilteredTextBox(FilterFunc filter, Action<T> valid_enter, (string title, string content) invalid_enter_tb)
-        : this(filter, valid_enter, () => CustomMessageBox.Show(invalid_enter_tb.title, invalid_enter_tb.content, WPFCommon.CurrentApp?.MainWindow))
+        : this(filter, valid_enter, () => CustomMessageBox.ShowOK(invalid_enter_tb.title, invalid_enter_tb.content, WPFCommon.CurrentApp?.MainWindow))
     { }
 
     /// <summary>

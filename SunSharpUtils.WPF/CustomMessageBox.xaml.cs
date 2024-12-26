@@ -142,12 +142,13 @@ public partial class CustomMessageBox : Window
 
     /// <summary>
     /// </summary>
-    public static TRes? Show<TRes>(string title, string? content, OwnerWindowContainer owner, params TRes[] options) where TRes : struct, Enum
+    public static TEnum? Show<TEnum>(string title, string? content, OwnerWindowContainer owner, params TEnum[] options)
+        where TEnum : struct, Enum
     {
         if (options.Length == 0) throw new ArgumentException("options.Length == 0");
         var res_name = Show(title, content, owner, Array.ConvertAll(options, e => e.ToString()));
         if (res_name is null) return null;
-        return (TRes)Enum.Parse(typeof(TRes), res_name);
+        return (TEnum)Enum.Parse(typeof(TEnum), res_name);
     }
     /// <summary>
     /// </summary>
@@ -155,23 +156,23 @@ public partial class CustomMessageBox : Window
 
     /// <summary>
     /// </summary>
-    public static string? Show(string title, string? content, OwnerWindowContainer owner) => Show(title, content, owner, "OK");
+    public static void ShowOK(string title, string? content, OwnerWindowContainer owner) => Show(title, content, owner, "OK");
     /// <summary>
     /// </summary>
-    public static string? Show(string title, string? content) => Show(title, content, no_own);
+    public static void ShowOK(string title, string? content) => ShowOK(title, content, no_own);
 
     /// <summary>
     /// </summary>
-    public static string? Show(string title, OwnerWindowContainer owner) => Show(title, null, owner);
+    public static void ShowOK(string title, OwnerWindowContainer owner) => ShowOK(title, null, owner);
     /// <summary>
     /// </summary>
-    public static string? Show(string title) => Show(title, no_own);
+    public static void ShowOK(string title) => ShowOK(title, no_own);
 
     /// <summary>
     /// </summary>
-    public static bool ShowYesNo(string title, string content, OwnerWindowContainer owner) => "Yes"==Show(title, content, owner, "Yes", "No");
+    public static bool ShowYesNo(string title, string? content, OwnerWindowContainer owner) => "Yes"==Show(title, content, owner, "Yes", "No");
     /// <summary>
     /// </summary>
-    public static bool ShowYesNo(string title, string content) => ShowYesNo(title, content, no_own);
+    public static bool ShowYesNo(string title, string? content) => ShowYesNo(title, content, no_own);
 
 }

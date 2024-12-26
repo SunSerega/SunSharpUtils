@@ -27,12 +27,12 @@ public readonly struct DelayedUpdateSpec
 
     /// <summary>
     /// </summary>
-    public static DelayedUpdateSpec FromDelay(TimeSpan earliest_delay, TimeSpan urgent_delay)
+    public static DelayedUpdateSpec FromDelay(TimeSpan earliest_delay, TimeSpan? urgent_delay)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(urgent_delay, earliest_delay);
+        ArgumentOutOfRangeException.ThrowIfLessThan(urgent_delay??TimeSpan.MaxValue, earliest_delay);
         ArgumentOutOfRangeException.ThrowIfLessThan(earliest_delay, TimeSpan.Zero);
         var now = DateTime.Now;
-        return new(now + earliest_delay, now + urgent_delay);
+        return new(now + earliest_delay, now + urgent_delay ?? DateTime.MaxValue);
     }
 
     /// <summary>
@@ -44,7 +44,7 @@ public readonly struct DelayedUpdateSpec
     /// </summary>
     /// <param name="delay"></param>
     /// <returns></returns>
-    public static DelayedUpdateSpec Postpone(TimeSpan delay) => FromDelay(delay, TimeSpan.MaxValue);
+    public static DelayedUpdateSpec Postpone(TimeSpan delay) => FromDelay(delay, null);
 
     /// <summary>
     /// Creates delay to trigger update no later than <paramref name="delay"/> relative to now              <br/>

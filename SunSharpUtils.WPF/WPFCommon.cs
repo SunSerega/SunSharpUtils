@@ -22,7 +22,18 @@ public static class WPFCommon
     public static void Init(Application app)
     {
 
-        Err.OnError += e => CustomMessageBox.Show(title: "ERROR", content: e.ToString());
+        Err.Init(new()
+        {
+            Handle = e => CustomMessageBox.ShowOK(title: "ERROR", content: e.ToString())
+        });
+
+        Prompt.Init(new()
+        {
+            Notify = CustomMessageBox.ShowOK,
+            AskYesNo = CustomMessageBox.ShowYesNo,
+            AskAny = CustomMessageBox.Show
+        });
+
         AppDomain.CurrentDomain.UnhandledException += (s, e) =>
         {
             if (e.IsTerminating) return;
