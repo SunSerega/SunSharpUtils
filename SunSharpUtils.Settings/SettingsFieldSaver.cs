@@ -14,7 +14,10 @@ public abstract class SettingsFieldSaver<TField>
 {
     /// <summary>
     /// </summary>
-    public static SettingsFieldSaver<TField>? Default { get; set; }
+    public static SettingsFieldSaver<TField>? Default { get; set; } = null;
+    /// <summary>
+    /// </summary>
+    public static SettingsFieldSaver<TField> DefaultOrThrow => Default ?? throw new InvalidOperationException($"No default saver for {typeof(TField)}");
 
     /// <summary>
     /// </summary>
@@ -24,7 +27,7 @@ public abstract class SettingsFieldSaver<TField>
     public string Serialize(TField value)
     {
         var res = SerializeImpl(value);
-        if ("\n\r".Any(res.Contains))
+        if (StringSaver.Utils.HasNewlines(res))
             throw new FormatException("Newline characters are not allowed in setting values");
         return res;
     }
@@ -36,60 +39,11 @@ public abstract class SettingsFieldSaver<TField>
     /// </summary>
     public TField Deserialize(string value)
     {
-        if ("\n\r".Any(value.Contains))
+        if (StringSaver.Utils.HasNewlines(value))
             throw new FormatException("Newline characters are not allowed in setting values");
         return DeserializeImpl(value);
     }
-
-    /// <summary>
-    /// </summary>
-    protected static class Utils
-    {
-
-        /// <summary>
-        /// Escapes newline characters and backslashes
-        /// </summary>
-        public static string Escape(string value)
-        {
-            return value.Replace(@"\", @"\\").Replace("\n", @"\n").Replace("\r", @"\r");
-        }
-
-        /// <summary>
-        /// Reverses the effect of <see cref="Escape"/>
-        /// </summary>
-        /// <param name="value"></param>
-        /// <returns></returns>
-        /// <exception cref="FormatException"></exception>
-        public static string Unescape(string value)
-        {
-            var sb = new StringBuilder(value.Length);
-            var escaped = false;
-            foreach (var ch in value)
-            {
-                if (escaped)
-                {
-                    sb.Append(ch switch
-                    {
-                        '\\' => '\\',
-                        'n' => '\n',
-                        'r' => '\r',
-                        _ => throw new FormatException($"Invalid escape sequence: \\{ch}")
-                    });
-                    escaped = false;
-                    continue;
-                }
-                if (ch == '\\')
-                {
-                    escaped = true;
-                    continue;
-                }
-                sb.Append(ch);
-            }
-            return sb.ToString();
-        }
-
-    }
-
+    
     /// <summary>
     /// Custom saver using delegates
     /// </summary>
@@ -119,7 +73,7 @@ public abstract class SettingsFieldSaver<TField>
     public static implicit operator SettingsFieldSaver<TField>((Func<TField, string> ser, Func<string, TField> deser) t) => new Dummy(t.ser, t.deser);
 
     private sealed class NumberSaver<T> : SettingsFieldSaver<T>
-        where T : TField, System.Numerics.IBinaryNumber<T>
+        where T : struct, TField, System.Numerics.IBinaryNumber<T>
     {
         private static readonly System.Globalization.NumberFormatInfo empty_nfi = new();
 
@@ -139,7 +93,7 @@ public abstract class SettingsFieldSaver<TField>
     {
 
         if (typeof(TField) == typeof(string))
-            Default = (Dummy)(object)new SettingsFieldSaver<string>.Dummy(Utils.Escape, Utils.Unescape);
+            Default = (Dummy)(object)StringSaver.SingleLine;
 
         if (typeof(TField) == typeof(bool))
             Default = (Dummy)(object)new SettingsFieldSaver<bool>.Dummy(v => v ? "1" : "0", v => v != "0");
