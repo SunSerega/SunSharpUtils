@@ -44,16 +44,9 @@ public abstract class SettingsFieldSaver<TField>
         return DeserializeImpl(value);
     }
     
-    /// <summary>
-    /// Custom saver using delegates
-    /// </summary>
-    public sealed class Dummy(Func<TField, string> ser, Func<string, TField> deser) : SettingsFieldSaver<TField>
+    private sealed class Dummy(Func<TField, string> ser, Func<string, TField> deser) : SettingsFieldSaver<TField>
     {
-        /// <summary>
-        /// </summary>
         protected override string SerializeImpl(TField value) => ser(value);
-        /// <summary>
-        /// </summary>
         protected override TField DeserializeImpl(string value) => deser(value);
     }
     /// <summary>

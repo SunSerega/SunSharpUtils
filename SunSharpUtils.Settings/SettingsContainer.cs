@@ -38,6 +38,7 @@ public abstract class SettingsContainer<TSelf, TData>
 {
     private readonly string main_save_fname;
     private readonly string back_save_fname;
+    private readonly bool save_all;
     private TData data;
 
     /// <summary>
@@ -62,7 +63,7 @@ public abstract class SettingsContainer<TSelf, TData>
 
     private static readonly DelayedMultiUpdater<TSelf> delayed_resave = new(
         container => container.FullResave(),
-        $"{nameof(FullResave)} for {typeof(TSelf)} = {nameof(SettingsContainer<TSelf,TData>)}<{nameof(TData)}>"
+        $"{nameof(FullResave)} for {typeof(TSelf)} = {nameof(SettingsContainer<TSelf,TData>)}<{typeof(TData)}>",
     );
 
     #region Init
@@ -100,7 +101,7 @@ public abstract class SettingsContainer<TSelf, TData>
     /// </summary>
     protected static void RegisterUpgradeAct(string key, FieldUpgradeAction action) => upgrade_actions.Add(key, action);
 
-    private static TData LoadData(string file_path, out bool need_resave)
+    private static TData LoadData(string file_path, bool save_all, out bool need_resave)
     {
         var res = default_data;
 
@@ -129,9 +130,11 @@ public abstract class SettingsContainer<TSelf, TData>
         }
 
         need_resave = false;
+        var key_count = 0;
         foreach (var line in File.ReadLines(file_path))
             try
             {
+                key_count++;
                 var parts = line.Split('=', 2);
                 if (parts.Length != 2)
                     throw new FormatException($"Settings line must have '=' separator");
@@ -154,6 +157,8 @@ public abstract class SettingsContainer<TSelf, TData>
                 if (!Prompt.AskYesNo("Settings format issue", $"{file_path}\n\nError parsing line:\n{line}\n\n{e.Message}\n\nIgnore?"))
                     throw new SettingsLoadUserAbortedException();
             }
+        if (save_all && key_count != field_tokens.Count)
+            need_resave = true;
 
         return res;
     }
@@ -168,6 +173,8 @@ public abstract class SettingsContainer<TSelf, TData>
         if (typeof(TSelf).Attributes.HasFlag(TypeAttributes.BeforeFieldInit))
             throw new InvalidOperationException("Settings class must have a static constructor, to make sure static token fields are inited before instance constructor");
 
+        if (typeof(TData).GetFields(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public).Length != 0)
+            throw new InvalidOperationException($"Settings data structure {typeof(TData)} must not have static fields");
         if (typeof(TData).GetFields(BindingFlags.Instance | BindingFlags.NonPublic).Length != 0)
             throw new InvalidOperationException($"Settings data structure {typeof(TData)} must only have public fields");
 
@@ -200,16 +207,19 @@ public abstract class SettingsContainer<TSelf, TData>
     /// <summary>
     /// Deploys settings for the specified path
     /// </summary>
-    /// <param name="path"></param>
+    /// <param name="path">Full file path without extension for settings to store their data</param>
+    /// <param name="save_all">If true, all fields will be saved, even if they have default value</param>
     /// <exception cref="SettingsLoadUserAbortedException"></exception>
-    protected SettingsContainer(string path)
+    protected SettingsContainer(string path, bool save_all)
     {
         CheckTokenInitStatus();
         
         path = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        main_save_fname = $"{path}.dat";
-        back_save_fname = $"{path}-Backup.dat";
+        this.main_save_fname = $"{path}.dat";
+        this.back_save_fname = $"{path}-Backup.dat";
+
+        this.save_all = save_all;
 
         if (!File.Exists(main_save_fname))
         {
@@ -217,7 +227,7 @@ public abstract class SettingsContainer<TSelf, TData>
             {
                 if (!Prompt.AskYesNo("Settings inconsistency", $"Backup file exists, but main settings file is missing:\n{path}\n\nSimply load backup?"))
                     throw new SettingsLoadUserAbortedException();
-                data = LoadData(back_save_fname, out _);
+                data = LoadData(back_save_fname, save_all, out _);
                 FullResave();
             }
             else
@@ -230,14 +240,14 @@ public abstract class SettingsContainer<TSelf, TData>
 
         if (!File.Exists(back_save_fname))
         {
-            data = LoadData(main_save_fname, out var need_resave);
+            data = LoadData(main_save_fname, save_all, out var need_resave);
             if (need_resave)
                 FullResave();
             return;
         }
 
-        var main_data = LoadData(main_save_fname, out _);
-        var back_data = LoadData(back_save_fname, out _);
+        var main_data = LoadData(main_save_fname, save_all, out _);
+        var back_data = LoadData(back_save_fname, save_all, out _);
 
         foreach (var token in field_tokens.Values)
         {
@@ -298,13 +308,13 @@ public abstract class SettingsContainer<TSelf, TData>
         /// </summary>
         public abstract string Name { get; }
 
+        internal abstract bool IsDefault(ref TData data);
+        internal abstract void SetDefault(ref TData res);
+
         internal abstract bool IsEqual(ref TData main_data, ref TData back_data);
         internal abstract void Copy(ref TData from, ref TData to);
 
-        internal abstract bool IsDefault(ref TData data);
         internal abstract string Serialize(ref TData res);
-
-        internal abstract void SetDefault(ref TData res);
         internal abstract void Deserialize(ref TData res, string v);
 
     }
@@ -391,13 +401,13 @@ public abstract class SettingsContainer<TSelf, TData>
             delayed_resave.TriggerPostpone(container, ResaveDelay);
         }
 
+        internal override bool IsDefault(ref TData data) => Equals(getter(ref data), def_val);
+        internal override void SetDefault(ref TData res) => setter(ref res, def_val);
+
         internal override bool IsEqual(ref TData data1, ref TData data2) => Equals(getter(ref data1), getter(ref data2));
         internal override void Copy(ref TData from, ref TData to) => setter(ref to, getter(ref from));
 
-        internal override bool IsDefault(ref TData data) => Equals(getter(ref data), def_val);
         internal override string Serialize(ref TData res) => saver.Serialize(getter(ref res));
-
-        internal override void SetDefault(ref TData res) => setter(ref res, def_val);
         internal override void Deserialize(ref TData res, string v) => setter(ref res, saver.Deserialize(v));
 
     }
@@ -480,7 +490,7 @@ public abstract class SettingsContainer<TSelf, TData>
 
         foreach (var token in field_tokens.Values)
         {
-            if (token.IsDefault(ref data))
+            if (!save_all && token.IsDefault(ref data))
                 continue;
             sw.WriteLine($"{token.Name}={token.Serialize(ref data)}");
         }
