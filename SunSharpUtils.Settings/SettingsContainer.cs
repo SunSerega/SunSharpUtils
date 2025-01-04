@@ -64,6 +64,7 @@ public abstract class SettingsContainer<TSelf, TData>
     private static readonly DelayedMultiUpdater<TSelf> delayed_resave = new(
         container => container.FullResave(),
         $"{nameof(FullResave)} for {typeof(TSelf)} = {nameof(SettingsContainer<TSelf,TData>)}<{typeof(TData)}>",
+        is_background: false
     );
 
     #region Init

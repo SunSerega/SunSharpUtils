@@ -139,6 +139,7 @@ public class DelayedUpdater
     private readonly ActivationHolder activation = new();
 
     private static ThreadStart MakeThreadStart(
+        bool is_background,
         Action update,
         ManualResetEventSlim ev,
         ActivationHolder activation
@@ -166,16 +167,7 @@ public class DelayedUpdater
 
                 activation.Clear();
 
-                Thread.CurrentThread.IsBackground = false;
-                try
-                {
-                    update();
-                }
-                finally
-                {
-                    Thread.CurrentThread.IsBackground = true;
-                }
-
+                ThreadingCommon.RunWithBackgroundReset(update, is_background);
             }
             catch when (Common.IsShuttingDown)
             {
@@ -192,9 +184,10 @@ public class DelayedUpdater
     /// </summary>
     /// <param name="update">An action to run when delay expires</param>
     /// <param name="description">Used for thread name</param>
-    public DelayedUpdater(Action update, string description)
+    /// <param name="is_background">Whether the app can be shut down in the middle of executing update</param>
+    public DelayedUpdater(Action update, string description, bool is_background)
     {
-        var thr = new Thread(MakeThreadStart(update, ev, activation))
+        var thr = new Thread(MakeThreadStart(is_background, update, ev, activation))
         {
             IsBackground=true,
             Name = $"{nameof(DelayedUpdater)}: {description}",
@@ -244,6 +237,7 @@ public class DelayedMultiUpdater<TKey>
     private static string ClassName => $"{nameof(DelayedMultiUpdater<TKey>)}<{typeof(TKey)}>";
 
     private static ThreadStart MakeThreadStart(
+        bool is_background,
         Action<TKey> update,
         ManualResetEventSlim ev,
         ConcurrentDictionary<TKey, DelayedUpdateSpec> updatables
@@ -274,16 +268,7 @@ public class DelayedMultiUpdater<TKey>
                 if (!updatables.TryRemove(kvp))
                     continue;
 
-                try
-                {
-                    Thread.CurrentThread.IsBackground = false;
-                    update(kvp.Key);
-                }
-                finally
-                {
-                    Thread.CurrentThread.IsBackground = true;
-                }
-
+                ThreadingCommon.RunWithBackgroundReset(() => update(kvp.Key), is_background);
             }
             catch when (Common.IsShuttingDown)
             {
@@ -299,10 +284,11 @@ public class DelayedMultiUpdater<TKey>
     /// </summary>
     /// <param name="update">An action to run when delay expires</param>
     /// <param name="description">Used for thread name</param>
-    public DelayedMultiUpdater(Action<TKey> update, string description)
+    /// <param name="is_background">Whether the app can be shut down in the middle of executing update</param>
+    public DelayedMultiUpdater(Action<TKey> update, string description, bool is_background)
     {
         this.update = update;
-        new Thread(MakeThreadStart(update, ev, updatables))
+        new Thread(MakeThreadStart(is_background, update, ev, updatables))
         {
             IsBackground = true,
             Name = $"{ClassName}: {description}",
