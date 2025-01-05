@@ -8,9 +8,10 @@ namespace SunSharpUtils;
 public static class Common
 {
 
+    private static int is_shutting_down = 0;
     /// <summary>
     /// </summary>
-    public static bool IsShuttingDown { get; private set; } = false;
+    public static bool IsShuttingDown => is_shutting_down != 0;
 
     /// <summary>
     /// </summary>
@@ -21,8 +22,7 @@ public static class Common
     /// <param name="exit_code"></param>
     public static void Shutdown(int exit_code)
     {
-        if (IsShuttingDown) return;
-        IsShuttingDown = true;
+        if (System.Threading.Interlocked.Exchange(ref is_shutting_down, 1) != 0) return;
         OnShutdown?.Invoke(exit_code);
     }
     /// <summary>
