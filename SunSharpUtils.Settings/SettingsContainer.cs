@@ -40,6 +40,7 @@ public abstract class SettingsContainer<TSelf, TData>
     private readonly String back_save_fname;
     private readonly Boolean save_all;
     private TData data;
+    private Boolean is_shut_down = false;
 
     /// <summary>
     /// </summary>
@@ -57,13 +58,22 @@ public abstract class SettingsContainer<TSelf, TData>
     public static Encoding SettingsEncoding { get; set; } = new UTF8Encoding(true);
 
     /// <summary>
-    /// Delay between the last setting change and the next full resave
+    /// Delay after the last setting change and the next full resave
     /// </summary>
     public static TimeSpan ResaveDelay { get; set; } = TimeSpan.FromSeconds(10);
+    /// <summary>
+    /// Delay after the first setting change and the urgent full resave
+    /// </summary>
+    public static TimeSpan ResaveMaxDelay { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// Pretty name for error messages
+    /// </summary>
+    public static String ClassName => $"{typeof(TSelf)} = {nameof(SettingsContainer<TSelf, TData>)}<{typeof(TData)}>";
 
     private static readonly DelayedMultiUpdater<TSelf> delayed_resave = new(
         container => container.FullResave(),
-        $"{nameof(FullResave)} for {typeof(TSelf)} = {nameof(SettingsContainer<TSelf,TData>)}<{typeof(TData)}>",
+        $"{nameof(FullResave)} for {ClassName}",
         is_background: false
     );
 
@@ -399,7 +409,7 @@ public abstract class SettingsContainer<TSelf, TData>
                 container.IncrementalDelete(name);
             else
                 container.IncrementalSave(name, saver.Serialize(value));
-            delayed_resave.TriggerPostpone(container, ResaveDelay);
+            delayed_resave.Trigger(container, DelayedUpdateSpec.FromDelay(earliest_delay: ResaveDelay, urgent_delay: ResaveMaxDelay));
         }
 
         internal override Boolean IsDefault(ref TData data) => Equals(getter(ref data), def_val);
@@ -458,35 +468,35 @@ public abstract class SettingsContainer<TSelf, TData>
 
     #region Save
 
-    private readonly Object save_lock = new();
+    private readonly Object disk_lock = new();
 
-    private void MakeSureBackupExists()
+    private void ActOnDisk(Action act)
     {
-        if (File.Exists(back_save_fname))
-            return;
-        File.Copy(main_save_fname, back_save_fname);
+        using var disk_locker = new ObjectLocker(disk_lock);
+        if (is_shut_down) return;
+
+        if (!File.Exists(back_save_fname))
+            File.Copy(main_save_fname, back_save_fname);
+
+        act();
+
+        // Locker disposed
     }
 
-    private void IncrementalSave(String name, String value)
+    private void IncrementalSave(String name, String value) => ActOnDisk(() =>
     {
-        using var save_locker = new ObjectLocker(save_lock);
-        MakeSureBackupExists();
         File.AppendAllLines(main_save_fname, [$"{name}={value}"], SettingsEncoding);
         File.AppendAllLines(back_save_fname, [$"{name}={value}"], SettingsEncoding);
-    }
+    });
 
-    private void IncrementalDelete(String name)
+    private void IncrementalDelete(String name) => ActOnDisk(() =>
     {
-        using var save_locker = new ObjectLocker(save_lock);
-        MakeSureBackupExists();
         File.AppendAllLines(main_save_fname, [$"{name}!="], SettingsEncoding);
         File.AppendAllLines(back_save_fname, [$"{name}!="], SettingsEncoding);
-    }
+    });
 
-    private void FullResave()
+    private void FullResave() => ActOnDisk(() =>
     {
-        using var save_locker = new ObjectLocker(save_lock);
-        MakeSureBackupExists();
         var sw = new StreamWriter(main_save_fname, false, SettingsEncoding);
 
         foreach (var token in field_tokens.Values)
@@ -498,6 +508,37 @@ public abstract class SettingsContainer<TSelf, TData>
 
         sw.Close();
         File.Delete(back_save_fname);
+    });
+
+    #endregion
+
+    #region Shutdown
+
+    /// <summary>
+    /// Stops background resaves and deletes the settings files
+    /// </summary>
+    /// <exception cref="InvalidOperationException">If called more than once</exception>
+    public void Shutdown()
+    {
+        using var disk_locker = new ObjectLocker(disk_lock);
+        if (is_shut_down)
+            throw new InvalidOperationException($"{ClassName} stored at {main_save_fname} is already shut down");
+        is_shut_down = true;
+        if (File.Exists(main_save_fname))
+            File.Delete(main_save_fname);
+        if (File.Exists(back_save_fname))
+            File.Delete(back_save_fname);
+    }
+
+    /// <summary>
+    /// </summary>
+    ~SettingsContainer()
+    {
+        if (is_shut_down)
+            return;
+
+        Prompt.Notify("Settings not shut down", $"{ClassName}\n{main_save_fname}\n\nMake sure to call .Shutdown() before deleting an object with settings");
+        Shutdown();
     }
 
     #endregion
