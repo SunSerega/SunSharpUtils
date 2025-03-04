@@ -9,13 +9,13 @@ namespace SunSharpUtils.Threading;
 /// </summary>
 public readonly struct ObjectLocker : IDisposable
 {
-    private readonly object o;
+    private readonly Object o;
 
     /// <summary>
     /// Locks the object, and will only release it on Dispose
     /// </summary>
     /// <param name="o"></param>
-    public ObjectLocker(object o)
+    public ObjectLocker(Object o)
     {
         if (o.GetType().IsValueType)
             throw new InvalidOperationException("Tried locking value type");
@@ -28,9 +28,9 @@ public readonly struct ObjectLocker : IDisposable
     /// </summary>
     /// <param name="o"></param>
     /// <returns></returns>
-    public static ObjectLocker? TryLock(object o)
+    public static ObjectLocker? TryLock(Object o)
     {
-        bool got_lock = false;
+        Boolean got_lock = false;
         Monitor.TryEnter(o, ref got_lock);
         if (!got_lock) return null;
         try

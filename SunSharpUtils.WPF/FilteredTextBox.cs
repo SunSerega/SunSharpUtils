@@ -17,7 +17,7 @@ public class FilteredTextBox<T> : ContentControl
     private readonly Action invalid_enter;
 
     private readonly TextBox tb = new();
-    private string uncommited_text = "";
+    private String uncommited_text = "";
 
     private static readonly Brush b_unedited = Brushes.Transparent;
     private static readonly Brush b_valid = Brushes.YellowGreen;
@@ -25,7 +25,7 @@ public class FilteredTextBox<T> : ContentControl
 
     /// <summary>
     /// </summary>
-    public delegate bool FilterFunc(string text, out T value);
+    public delegate Boolean FilterFunc(String text, out T value);
 
     /// <summary>
     /// </summary>
@@ -73,7 +73,7 @@ public class FilteredTextBox<T> : ContentControl
     /// <param name="filter"></param>
     /// <param name="valid_enter"></param>
     /// <param name="invalid_enter_tb"></param>
-    public FilteredTextBox(FilterFunc filter, Action<T> valid_enter, (string title, string content) invalid_enter_tb)
+    public FilteredTextBox(FilterFunc filter, Action<T> valid_enter, (String title, String content) invalid_enter_tb)
         : this(filter, valid_enter, () => CustomMessageBox.ShowOK(invalid_enter_tb.title, invalid_enter_tb.content, WPFCommon.CurrentApp?.MainWindow))
     { }
 
@@ -83,13 +83,13 @@ public class FilteredTextBox<T> : ContentControl
 
     /// <summary>
     /// </summary>
-    public bool Edited { get; private set; } = false;
+    public Boolean Edited { get; private set; } = false;
 
     /// <summary>
     /// Sets the state to valid with the given content
     /// </summary>
     /// <param name="content"></param>
-    public void ResetContent(string content)
+    public void ResetContent(String content)
     {
         tb.Text = content;
         tb.Background = Brushes.Transparent;
@@ -101,7 +101,7 @@ public class FilteredTextBox<T> : ContentControl
     /// Tries to commit the current text, parse it and 
     /// </summary>
     /// <returns></returns>
-    public bool TryCommit()
+    public Boolean TryCommit()
     {
         if (!filter(tb.Text, out var v))
         {

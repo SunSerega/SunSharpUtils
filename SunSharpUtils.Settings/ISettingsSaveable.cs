@@ -12,9 +12,9 @@ public interface ISettingsSaveable<TSelf>
 
     /// <summary>
     /// </summary>
-    static abstract string SerializeSetting(TSelf setting);
+    static abstract String SerializeSetting(TSelf setting);
     /// <summary>
     /// </summary>
-    static abstract TSelf DeserializeSetting(string setting);
+    static abstract TSelf DeserializeSetting(String setting);
 
 }

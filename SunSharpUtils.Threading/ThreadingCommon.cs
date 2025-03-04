@@ -15,7 +15,7 @@ public static class ThreadingCommon
     /// </summary>
     /// <param name="act"></param>
     /// <param name="new_is_background"></param>
-    public static void RunWithBackgroundReset(Action act, bool new_is_background)
+    public static void RunWithBackgroundReset(Action act, Boolean new_is_background)
     {
         var is_background = Thread.CurrentThread.IsBackground;
         Thread.CurrentThread.IsBackground = new_is_background;

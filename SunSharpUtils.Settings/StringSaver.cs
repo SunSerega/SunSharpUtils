@@ -16,12 +16,12 @@ public static class StringSaver
 
         /// <summary>
         /// </summary>
-        public static bool HasNewlines(string? value) => value is not null && "\n\r".Any(value.Contains);
+        public static Boolean HasNewlines(String? value) => value is not null && "\n\r".Any(value.Contains);
 
         /// <summary>
         /// Escapes null, newline characters, and backslashes, accounting for newlines
         /// </summary>
-        public static string EscapeMultiLine(string? value)
+        public static String EscapeMultiLine(String? value)
         {
             if (value is null)
                 return @"\";
@@ -34,7 +34,7 @@ public static class StringSaver
         /// <param name="value"></param>
         /// <returns></returns>
         /// <exception cref="FormatException"></exception>
-        public static string? UnescapeMultiLine(string value)
+        public static String? UnescapeMultiLine(String value)
         {
             var sb = new StringBuilder(value.Length);
             var escaped = false;
@@ -74,7 +74,7 @@ public static class StringSaver
         /// <param name="value"></param>
         /// <returns></returns>
         /// <exception cref="FormatException"></exception>
-        public static string EscapeSingleLine(string? value)
+        public static String EscapeSingleLine(String? value)
         {
             if (HasNewlines(value))
                 throw new FormatException("Newline characters were not expected");
@@ -87,7 +87,7 @@ public static class StringSaver
         /// </summary>
         /// <param name="value"></param>
         /// <returns></returns>
-        public static string? UnescapeSingleLine(string value)
+        public static String? UnescapeSingleLine(String value)
         {
             if (value == "")
                 return null;
@@ -100,10 +100,10 @@ public static class StringSaver
 
     /// <summary>
     /// </summary>
-    public static SettingsFieldSaver<string?> MultiLine { get; } = (Utils.EscapeMultiLine, Utils.UnescapeMultiLine);
+    public static SettingsFieldSaver<String?> MultiLine { get; } = (Utils.EscapeMultiLine, Utils.UnescapeMultiLine);
 
     /// <summary>
     /// </summary>
-    public static SettingsFieldSaver<string?> SingleLine { get; } = (Utils.EscapeSingleLine, Utils.UnescapeSingleLine);
+    public static SettingsFieldSaver<String?> SingleLine { get; } = (Utils.EscapeSingleLine, Utils.UnescapeSingleLine);
 
 }

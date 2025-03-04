@@ -36,20 +36,20 @@ public abstract class SettingsContainer<TSelf, TData>
     where TSelf : SettingsContainer<TSelf, TData>
     where TData : struct
 {
-    private readonly string main_save_fname;
-    private readonly string back_save_fname;
-    private readonly bool save_all;
+    private readonly String main_save_fname;
+    private readonly String back_save_fname;
+    private readonly Boolean save_all;
     private TData data;
 
     /// <summary>
     /// </summary>
-    public string GetSettingsFile() => main_save_fname;
+    public String GetSettingsFile() => main_save_fname;
     /// <summary>
     /// </summary>
-    public string GetSettingsBackupFile() => back_save_fname;
+    public String GetSettingsBackupFile() => back_save_fname;
     /// <summary>
     /// </summary>
-    public string GetSettingsDir() => Path.GetDirectoryName(main_save_fname)!;
+    public String GetSettingsDir() => Path.GetDirectoryName(main_save_fname)!;
 
     /// <summary>
     /// Encoding used for settings files
@@ -71,14 +71,14 @@ public abstract class SettingsContainer<TSelf, TData>
 
     /// <summary>
     /// </summary>
-    protected readonly ref struct FieldUpgradeContext(ref TData data, string? value)
+    protected readonly ref struct FieldUpgradeContext(ref TData data, String? value)
     {
         private readonly ref TData data = ref data;
 
         /// <summary>
         /// Saved value or null if the value was set to default
         /// </summary>
-        public string? Value { get; init; } = value;
+        public String? Value { get; init; } = value;
 
         /// <summary>
         /// Overrides the value of given field
@@ -96,20 +96,20 @@ public abstract class SettingsContainer<TSelf, TData>
     /// <summary>
     /// </summary>
     protected delegate void FieldUpgradeAction(ref FieldUpgradeContext ctx);
-    private static readonly Dictionary<string, FieldUpgradeAction> upgrade_actions = [];
+    private static readonly Dictionary<String, FieldUpgradeAction> upgrade_actions = [];
     /// <summary>
     /// When field token is not found, this action is called with the saved value or null if the last value was set to default
     /// </summary>
-    protected static void RegisterUpgradeAct(string key, FieldUpgradeAction action) => upgrade_actions.Add(key, action);
+    protected static void RegisterUpgradeAct(String key, FieldUpgradeAction action) => upgrade_actions.Add(key, action);
 
-    private static TData LoadData(string file_path, bool save_all, out bool need_resave)
+    private static TData LoadData(String file_path, Boolean save_all, out Boolean need_resave)
     {
         var res = default_data;
 
         foreach (var token in field_tokens.Values)
             token.SetDefault(ref res);
 
-        void HandleKey(string key, string? value, ref bool need_resave)
+        void HandleKey(String key, String? value, ref Boolean need_resave)
         {
             if (field_tokens.TryGetValue(key, out var token))
             {
@@ -165,7 +165,7 @@ public abstract class SettingsContainer<TSelf, TData>
     }
 
     private static TData default_data = default;
-    private static bool tokens_initialized = false;
+    private static Boolean tokens_initialized = false;
     private static void CheckTokenInitStatus()
     {
         if (tokens_initialized)
@@ -179,14 +179,14 @@ public abstract class SettingsContainer<TSelf, TData>
         if (typeof(TData).GetFields(BindingFlags.Instance | BindingFlags.NonPublic).Length != 0)
             throw new InvalidOperationException($"Settings data structure {typeof(TData)} must only have public fields");
 
-        var field_names = new HashSet<string>();
+        var field_names = new HashSet<String>();
         foreach (var fi in typeof(TData).GetFields(BindingFlags.Instance | BindingFlags.Public))
             if (!field_names.Add(fi.Name))
                 throw new InvalidOperationException($"Duplicate field name {fi.Name} in data structure {typeof(TData)}");
 
         if (!field_names.SetEquals(field_tokens.Keys))
         {
-            var messages = new List<string>(3)
+            var messages = new List<String>(3)
             {
                 "SettingsContainer field mismatch",
             };
@@ -211,7 +211,7 @@ public abstract class SettingsContainer<TSelf, TData>
     /// <param name="path">Full file path without extension for settings to store their data</param>
     /// <param name="save_all">If true, all fields will be saved, even if they have default value</param>
     /// <exception cref="SettingsLoadUserAbortedException"></exception>
-    protected SettingsContainer(string path, bool save_all)
+    protected SettingsContainer(String path, Boolean save_all)
     {
         CheckTokenInitStatus();
         
@@ -272,9 +272,9 @@ public abstract class SettingsContainer<TSelf, TData>
             content_sb.AppendLine(":");
             content_sb.AppendLine(token.Serialize(ref back_data));
 
-            const string P_Main = "Take main";
-            const string P_Back = "Take backup";
-            const string P_Abort = "Abort";
+            const String P_Main = "Take main";
+            const String P_Back = "Take backup";
+            const String P_Abort = "Abort";
 
             var choise = Prompt.AskAny(title, content_sb.ToString(), [P_Main, P_Back, P_Abort]);
             switch (choise)
@@ -299,7 +299,7 @@ public abstract class SettingsContainer<TSelf, TData>
 
     #region FieldToken
 
-    private static readonly Dictionary<string, FieldTokenBase> field_tokens = [];
+    private static readonly Dictionary<String, FieldTokenBase> field_tokens = [];
 
     /// <summary>
     /// </summary>
@@ -307,16 +307,16 @@ public abstract class SettingsContainer<TSelf, TData>
     {
         /// <summary>
         /// </summary>
-        public abstract string Name { get; }
+        public abstract String Name { get; }
 
-        internal abstract bool IsDefault(ref TData data);
+        internal abstract Boolean IsDefault(ref TData data);
         internal abstract void SetDefault(ref TData res);
 
-        internal abstract bool IsEqual(ref TData main_data, ref TData back_data);
+        internal abstract Boolean IsEqual(ref TData main_data, ref TData back_data);
         internal abstract void Copy(ref TData from, ref TData to);
 
-        internal abstract string Serialize(ref TData res);
-        internal abstract void Deserialize(ref TData res, string v);
+        internal abstract String Serialize(ref TData res);
+        internal abstract void Deserialize(ref TData res, String v);
 
     }
 
@@ -328,7 +328,7 @@ public abstract class SettingsContainer<TSelf, TData>
         private delegate TField DGetter(ref TData data);
         private delegate void DSetter(ref TData data, TField value);
 
-        private readonly string name;
+        private readonly String name;
         private readonly DGetter getter;
         private readonly DSetter setter;
         private readonly TField def_val;
@@ -336,7 +336,7 @@ public abstract class SettingsContainer<TSelf, TData>
 
         /// <summary>
         /// </summary>
-        public override string Name => name;
+        public override String Name => name;
 
         /// <summary>
         /// </summary>
@@ -366,7 +366,7 @@ public abstract class SettingsContainer<TSelf, TData>
             setter(ref default_data, def_val);
         }
 
-        private static bool Equals(TField a, TField b) =>
+        private static Boolean Equals(TField a, TField b) =>
             a is null ? b is null : a.Equals(b);
 
         /// <summary>
@@ -377,7 +377,7 @@ public abstract class SettingsContainer<TSelf, TData>
         /// <param name="data"></param>
         /// <param name="value"></param>
         /// <returns>true if value was updated</returns>
-        public bool Set(ref TData data, TField value)
+        public Boolean Set(ref TData data, TField value)
         {
             if (Equals(value, Get(ref data)))
                 return false;
@@ -402,14 +402,14 @@ public abstract class SettingsContainer<TSelf, TData>
             delayed_resave.TriggerPostpone(container, ResaveDelay);
         }
 
-        internal override bool IsDefault(ref TData data) => Equals(getter(ref data), def_val);
+        internal override Boolean IsDefault(ref TData data) => Equals(getter(ref data), def_val);
         internal override void SetDefault(ref TData res) => setter(ref res, def_val);
 
-        internal override bool IsEqual(ref TData data1, ref TData data2) => Equals(getter(ref data1), getter(ref data2));
+        internal override Boolean IsEqual(ref TData data1, ref TData data2) => Equals(getter(ref data1), getter(ref data2));
         internal override void Copy(ref TData from, ref TData to) => setter(ref to, getter(ref from));
 
-        internal override string Serialize(ref TData res) => saver.Serialize(getter(ref res));
-        internal override void Deserialize(ref TData res, string v) => setter(ref res, saver.Deserialize(v));
+        internal override String Serialize(ref TData res) => saver.Serialize(getter(ref res));
+        internal override void Deserialize(ref TData res, String v) => setter(ref res, saver.Deserialize(v));
 
     }
 
@@ -449,7 +449,7 @@ public abstract class SettingsContainer<TSelf, TData>
                 ThrowFormat($"Field is not of type {typeof(TField)}, but {field.FieldType}");
 
             return field;
-            static void ThrowFormat(string explanation) => throw new ArgumentException($"Expression must be in the form data=>data.field: {explanation}");
+            static void ThrowFormat(String explanation) => throw new ArgumentException($"Expression must be in the form data=>data.field: {explanation}");
         }
 
     }
@@ -458,7 +458,7 @@ public abstract class SettingsContainer<TSelf, TData>
 
     #region Save
 
-    private readonly object save_lock = new();
+    private readonly Object save_lock = new();
 
     private void MakeSureBackupExists()
     {
@@ -467,7 +467,7 @@ public abstract class SettingsContainer<TSelf, TData>
         File.Copy(main_save_fname, back_save_fname);
     }
 
-    private void IncrementalSave(string name, string value)
+    private void IncrementalSave(String name, String value)
     {
         using var save_locker = new ObjectLocker(save_lock);
         MakeSureBackupExists();
@@ -475,7 +475,7 @@ public abstract class SettingsContainer<TSelf, TData>
         File.AppendAllLines(back_save_fname, [$"{name}={value}"], SettingsEncoding);
     }
 
-    private void IncrementalDelete(string name)
+    private void IncrementalDelete(String name)
     {
         using var save_locker = new ObjectLocker(save_lock);
         MakeSureBackupExists();

@@ -15,7 +15,7 @@ public readonly struct SettingsNullable<T>(T? value) : IEquatable<SettingsNullab
     public T? Value { get; init; } = value;
     /// <summary>
     /// </summary>
-    public const string NullRepresentation = "-";
+    public const String NullRepresentation = "-";
 
     /// <summary>
     /// </summary>
@@ -26,24 +26,24 @@ public readonly struct SettingsNullable<T>(T? value) : IEquatable<SettingsNullab
 
     /// <summary>
     /// </summary>
-    public static bool operator ==(SettingsNullable<T> a, SettingsNullable<T> b) =>
+    public static Boolean operator ==(SettingsNullable<T> a, SettingsNullable<T> b) =>
         a.Value is null ? b.Value is null : b.Value is not null && a.Value.Value.Equals(b.Value.Value);
     /// <summary>
     /// </summary>
-    public static bool operator !=(SettingsNullable<T> a, SettingsNullable<T> b) => !(a == b);
+    public static Boolean operator !=(SettingsNullable<T> a, SettingsNullable<T> b) => !(a == b);
 
     /// <summary>
     /// </summary>
-    public bool Equals(SettingsNullable<T> other) => this == other;
+    public Boolean Equals(SettingsNullable<T> other) => this == other;
     /// <summary>
     /// </summary>
-    public override bool Equals(object? obj) => obj is SettingsNullable<T> other && Equals(other);
+    public override Boolean Equals(Object? obj) => obj is SettingsNullable<T> other && Equals(other);
 
     /// <summary>
     /// </summary>
-    public override int GetHashCode() => HashCode.Combine(Value);
+    public override Int32 GetHashCode() => HashCode.Combine(Value);
 
-    static string ISettingsSaveable<SettingsNullable<T>>.SerializeSetting(SettingsNullable<T> setting)
+    static String ISettingsSaveable<SettingsNullable<T>>.SerializeSetting(SettingsNullable<T> setting)
     {
         if (setting.Value is null)
             return NullRepresentation;
@@ -53,7 +53,7 @@ public readonly struct SettingsNullable<T>(T? value) : IEquatable<SettingsNullab
         return res;
     }
 
-    static SettingsNullable<T> ISettingsSaveable<SettingsNullable<T>>.DeserializeSetting(string setting)
+    static SettingsNullable<T> ISettingsSaveable<SettingsNullable<T>>.DeserializeSetting(String setting)
     {
         if (setting == NullRepresentation)
             return (T?)null;

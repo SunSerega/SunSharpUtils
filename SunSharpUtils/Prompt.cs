@@ -16,17 +16,17 @@ public static class Prompt
         /// <summary>
         /// title, content
         /// </summary>
-        public Action<string, string?> Notify { get; init; }
+        public Action<String, String?> Notify { get; init; }
 
         /// <summary>
         /// title, content, return true if yes
         /// </summary>
-        public Func<string, string?, bool> AskYesNo { get; init; }
+        public Func<String, String?, Boolean> AskYesNo { get; init; }
 
         /// <summary>
         /// title, content, options, return selected option or null
         /// </summary>
-        public Func<string, string?, string[], string?> AskAny { get; init; }
+        public Func<String, String?, String[], String?> AskAny { get; init; }
 
     }
     private static DelegateStore? delegate_store = null;
@@ -43,15 +43,15 @@ public static class Prompt
 
     /// <summary>
     /// </summary>
-    public static void Notify(string title, string? content = null) => D.Notify(title, content);
+    public static void Notify(String title, String? content = null) => D.Notify(title, content);
 
     /// <summary>
     /// </summary>
-    public static bool AskYesNo(string title, string? content = null) => D.AskYesNo(title, content);
+    public static Boolean AskYesNo(String title, String? content = null) => D.AskYesNo(title, content);
 
     /// <summary>
     /// </summary>
-    public static string? AskAny(string title, string? content, params string[] options)
+    public static String? AskAny(String title, String? content, params String[] options)
     {
         if (options.Length == 0)
             throw new InvalidOperationException("No options provided. Use Notify to prompt user without options");
@@ -60,7 +60,7 @@ public static class Prompt
 
     /// <summary>
     /// </summary>
-    public static TEnum? AskAny<TEnum>(string title, string? content, params TEnum[] options)
+    public static TEnum? AskAny<TEnum>(String title, String? content, params TEnum[] options)
         where TEnum: struct, Enum
     {
         var res = AskAny(title, content, Array.ConvertAll(options, e => e.ToString()));

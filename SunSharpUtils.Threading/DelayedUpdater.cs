@@ -56,7 +56,7 @@ public readonly struct DelayedUpdateSpec
 
     internal TimeSpan GetRemainingWait() => earliest_time - DateTime.Now;
 
-    internal static DelayedUpdateSpec Combine(DelayedUpdateSpec prev, DelayedUpdateSpec next, out bool need_ev_set)
+    internal static DelayedUpdateSpec Combine(DelayedUpdateSpec prev, DelayedUpdateSpec next, out Boolean need_ev_set)
     {
         need_ev_set = false;
 
@@ -78,17 +78,17 @@ public readonly struct DelayedUpdateSpec
 
     /// <summary>
     /// </summary>
-    public static bool operator ==(DelayedUpdateSpec a, DelayedUpdateSpec b) => a.earliest_time == b.earliest_time && a.urgent_time == b.urgent_time;
+    public static Boolean operator ==(DelayedUpdateSpec a, DelayedUpdateSpec b) => a.earliest_time == b.earliest_time && a.urgent_time == b.urgent_time;
     /// <summary>
     /// </summary>
-    public static bool operator !=(DelayedUpdateSpec a, DelayedUpdateSpec b) => !(a == b);
+    public static Boolean operator !=(DelayedUpdateSpec a, DelayedUpdateSpec b) => !(a == b);
     /// <summary>
     /// </summary>
-    public override bool Equals(object? obj) => obj is DelayedUpdateSpec spec && this == spec;
+    public override Boolean Equals(Object? obj) => obj is DelayedUpdateSpec spec && this == spec;
 
     /// <summary>
     /// </summary>
-    public override int GetHashCode() => HashCode.Combine(earliest_time, urgent_time);
+    public override Int32 GetHashCode() => HashCode.Combine(earliest_time, urgent_time);
 
 }
 
@@ -109,7 +109,7 @@ public class DelayedUpdater
     {
         private DelayedUpdateSpec? requested;
 
-        public bool IsRequested => requested.HasValue;
+        public Boolean IsRequested => requested.HasValue;
 
         public TimeSpan GetRemainingWait() => requested!.Value.GetRemainingWait();
 
@@ -119,7 +119,7 @@ public class DelayedUpdater
             requested = null;
         }
 
-        public bool TryUpdate(DelayedUpdateSpec next)
+        public Boolean TryUpdate(DelayedUpdateSpec next)
         {
             using var this_locker = new ObjectLocker(this);
             var need_ev_set = true;
@@ -139,7 +139,7 @@ public class DelayedUpdater
     private readonly ActivationHolder activation = new();
 
     private static ThreadStart MakeThreadStart(
-        bool is_background,
+        Boolean is_background,
         Action update,
         ManualResetEventSlim ev,
         ActivationHolder activation
@@ -185,7 +185,7 @@ public class DelayedUpdater
     /// <param name="update">An action to run when delay expires</param>
     /// <param name="description">Used for thread name</param>
     /// <param name="is_background">Whether the app can be shut down in the middle of executing update</param>
-    public DelayedUpdater(Action update, string description, bool is_background)
+    public DelayedUpdater(Action update, String description, Boolean is_background)
     {
         var thr = new Thread(MakeThreadStart(is_background, update, ev, activation))
         {
@@ -234,10 +234,10 @@ public class DelayedMultiUpdater<TKey>
     private readonly ManualResetEventSlim ev = new(false);
     private readonly Action<TKey> update;
 
-    private static string ClassName => $"{nameof(DelayedMultiUpdater<TKey>)}<{typeof(TKey)}>";
+    private static String ClassName => $"{nameof(DelayedMultiUpdater<TKey>)}<{typeof(TKey)}>";
 
     private static ThreadStart MakeThreadStart(
-        bool is_background,
+        Boolean is_background,
         Action<TKey> update,
         ManualResetEventSlim ev,
         ConcurrentDictionary<TKey, DelayedUpdateSpec> updatables
@@ -285,7 +285,7 @@ public class DelayedMultiUpdater<TKey>
     /// <param name="update">An action to run when delay expires</param>
     /// <param name="description">Used for thread name</param>
     /// <param name="is_background">Whether the app can be shut down in the middle of executing update</param>
-    public DelayedMultiUpdater(Action<TKey> update, string description, bool is_background)
+    public DelayedMultiUpdater(Action<TKey> update, String description, Boolean is_background)
     {
         this.update = update;
         new Thread(MakeThreadStart(is_background, update, ev, updatables))

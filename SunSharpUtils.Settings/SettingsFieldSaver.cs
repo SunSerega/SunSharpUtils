@@ -21,10 +21,10 @@ public abstract class SettingsFieldSaver<TField>
 
     /// <summary>
     /// </summary>
-    protected abstract string SerializeImpl(TField value);
+    protected abstract String SerializeImpl(TField value);
     /// <summary>
     /// </summary>
-    public string Serialize(TField value)
+    public String Serialize(TField value)
     {
         var res = SerializeImpl(value);
         if (StringSaver.Utils.HasNewlines(res))
@@ -34,20 +34,20 @@ public abstract class SettingsFieldSaver<TField>
 
     /// <summary>
     /// </summary>
-    protected abstract TField DeserializeImpl(string value);
+    protected abstract TField DeserializeImpl(String value);
     /// <summary>
     /// </summary>
-    public TField Deserialize(string value)
+    public TField Deserialize(String value)
     {
         if (StringSaver.Utils.HasNewlines(value))
             throw new FormatException("Newline characters are not allowed in setting values");
         return DeserializeImpl(value);
     }
     
-    private sealed class Dummy(Func<TField, string> ser, Func<string, TField> deser) : SettingsFieldSaver<TField>
+    private sealed class Dummy(Func<TField, String> ser, Func<String, TField> deser) : SettingsFieldSaver<TField>
     {
-        protected override string SerializeImpl(TField value) => ser(value);
-        protected override TField DeserializeImpl(string value) => deser(value);
+        protected override String SerializeImpl(TField value) => ser(value);
+        protected override TField DeserializeImpl(String value) => deser(value);
     }
     /// <summary>
     /// Defines a custom saver using delegates and sets it as default
@@ -55,7 +55,7 @@ public abstract class SettingsFieldSaver<TField>
     /// <param name="ser"></param>
     /// <param name="deser"></param>
     /// <exception cref="InvalidOperationException"></exception>
-    public static SettingsFieldSaver<TField> DefineDefaultDummy(Func<TField, string> ser, Func<string, TField> deser)
+    public static SettingsFieldSaver<TField> DefineDefaultDummy(Func<TField, String> ser, Func<String, TField> deser)
     {
         if (Default is not null)
             throw new InvalidOperationException("Default saver already defined");
@@ -63,33 +63,33 @@ public abstract class SettingsFieldSaver<TField>
     }
     /// <summary>
     /// </summary>
-    public static implicit operator SettingsFieldSaver<TField>((Func<TField, string> ser, Func<string, TField> deser) t) => new Dummy(t.ser, t.deser);
+    public static implicit operator SettingsFieldSaver<TField>((Func<TField, String> ser, Func<String, TField> deser) t) => new Dummy(t.ser, t.deser);
 
     private sealed class NumberSaver<T> : SettingsFieldSaver<T>
         where T : struct, TField, System.Numerics.IBinaryNumber<T>
     {
         private static readonly System.Globalization.NumberFormatInfo empty_nfi = new();
 
-        protected override string SerializeImpl(T value) => value.ToString(null, empty_nfi);
-        protected override T DeserializeImpl(string value) => T.Parse(value, empty_nfi);
+        protected override String SerializeImpl(T value) => value.ToString(null, empty_nfi);
+        protected override T DeserializeImpl(String value) => T.Parse(value, empty_nfi);
 
     }
 
     private sealed class SelfReporterSaver<T> : SettingsFieldSaver<T>
         where T : TField, ISettingsSaveable<T>
     {
-        protected override string SerializeImpl(T value) => T.SerializeSetting(value);
-        protected override T DeserializeImpl(string value) => T.DeserializeSetting(value);
+        protected override String SerializeImpl(T value) => T.SerializeSetting(value);
+        protected override T DeserializeImpl(String value) => T.DeserializeSetting(value);
     }
 
     static SettingsFieldSaver()
     {
 
-        if (typeof(TField) == typeof(string))
-            Default = (Dummy)(object)StringSaver.SingleLine;
+        if (typeof(TField) == typeof(String))
+            Default = (Dummy)(Object)StringSaver.SingleLine;
 
-        if (typeof(TField) == typeof(bool))
-            Default = (Dummy)(object)new SettingsFieldSaver<bool>.Dummy(v => v ? "1" : "0", v => v != "0");
+        if (typeof(TField) == typeof(Boolean))
+            Default = (Dummy)(Object)new SettingsFieldSaver<Boolean>.Dummy(v => v ? "1" : "0", v => v != "0");
 
         if (typeof(TField).GetInterfaces().Any(intr => intr.IsGenericType && intr.GetGenericTypeDefinition() == typeof(System.Numerics.IBinaryNumber<>)))
             Default = (SettingsFieldSaver<TField>?)Activator.CreateInstance(typeof(NumberSaver<>).MakeGenericType(typeof(TField), typeof(TField)));

@@ -15,10 +15,10 @@ public static class Linq
 
     /// <summary>
     /// </summary>
-    public static string JoinToString<T>(this IEnumerable<T> seq, char separator = ' ') => string.Join(separator, seq);
+    public static String JoinToString<T>(this IEnumerable<T> seq, Char separator = ' ') => String.Join(separator, seq);
     /// <summary>
     /// </summary>
-    public static string JoinToString<T>(this IEnumerable<T> seq, string? separator) => string.Join(separator, seq);
+    public static String JoinToString<T>(this IEnumerable<T> seq, String? separator) => String.Join(separator, seq);
 
     /// <summary>
     /// </summary>

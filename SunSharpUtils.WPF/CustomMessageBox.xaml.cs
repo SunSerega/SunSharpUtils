@@ -31,7 +31,7 @@ public partial class CustomMessageBox : Window
     /// <summary>
     /// Creates a new CustomMessageBox without showing it
     /// </summary>
-    public CustomMessageBox(string title, string? content, OwnerWindowContainer owner, params string[] button_names)
+    public CustomMessageBox(String title, String? content, OwnerWindowContainer owner, params String[] button_names)
     {
         try
         {
@@ -106,20 +106,20 @@ public partial class CustomMessageBox : Window
     /// If there are no buttons or Escape was pressed, this is null                 <br />
     /// If there was only one button, it could've been selected by pressing Enter   <br />
     /// </summary>
-    public string? ChosenOption { get; private set; } = null;
+    public String? ChosenOption { get; private set; } = null;
 
     private static readonly OwnerWindowContainer no_own = new(null);
 
     /// <summary>
     /// </summary>
-    public static string? Show(string title, string? content, OwnerWindowContainer owner, params string[] button_names)
+    public static String? Show(String title, String? content, OwnerWindowContainer owner, params String[] button_names)
     {
         // If the owner is set, only allow message boxes to be shown from the original window thread
         owner.Value?.Dispatcher.VerifyAccess();
 
         if (System.Threading.Thread.CurrentThread.GetApartmentState() != System.Threading.ApartmentState.STA)
         {
-            string? res = null;
+            String? res = null;
             var thr = new System.Threading.Thread(() => Err.Handle(() =>
                 res = Show(title, content, owner, button_names)
             ))
@@ -138,11 +138,11 @@ public partial class CustomMessageBox : Window
     }
     /// <summary>
     /// </summary>
-    public static string? Show(string title, string? content, params string[] button_names) => Show(title, content, no_own, button_names);
+    public static String? Show(String title, String? content, params String[] button_names) => Show(title, content, no_own, button_names);
 
     /// <summary>
     /// </summary>
-    public static TEnum? Show<TEnum>(string title, string? content, OwnerWindowContainer owner, params TEnum[] options)
+    public static TEnum? Show<TEnum>(String title, String? content, OwnerWindowContainer owner, params TEnum[] options)
         where TEnum : struct, Enum
     {
         if (options.Length == 0) throw new ArgumentException("options.Length == 0");
@@ -152,27 +152,27 @@ public partial class CustomMessageBox : Window
     }
     /// <summary>
     /// </summary>
-    public static TRes? Show<TRes>(string title, string? content, params TRes[] options) where TRes : struct, Enum => Show<TRes>(title, content, no_own, options);
+    public static TRes? Show<TRes>(String title, String? content, params TRes[] options) where TRes : struct, Enum => Show<TRes>(title, content, no_own, options);
 
     /// <summary>
     /// </summary>
-    public static void ShowOK(string title, string? content, OwnerWindowContainer owner) => Show(title, content, owner, "OK");
+    public static void ShowOK(String title, String? content, OwnerWindowContainer owner) => Show(title, content, owner, "OK");
     /// <summary>
     /// </summary>
-    public static void ShowOK(string title, string? content) => ShowOK(title, content, no_own);
+    public static void ShowOK(String title, String? content) => ShowOK(title, content, no_own);
 
     /// <summary>
     /// </summary>
-    public static void ShowOK(string title, OwnerWindowContainer owner) => ShowOK(title, null, owner);
+    public static void ShowOK(String title, OwnerWindowContainer owner) => ShowOK(title, null, owner);
     /// <summary>
     /// </summary>
-    public static void ShowOK(string title) => ShowOK(title, no_own);
+    public static void ShowOK(String title) => ShowOK(title, no_own);
 
     /// <summary>
     /// </summary>
-    public static bool ShowYesNo(string title, string? content, OwnerWindowContainer owner) => "Yes"==Show(title, content, owner, "Yes", "No");
+    public static Boolean ShowYesNo(String title, String? content, OwnerWindowContainer owner) => "Yes"==Show(title, content, owner, "Yes", "No");
     /// <summary>
     /// </summary>
-    public static bool ShowYesNo(string title, string? content) => ShowYesNo(title, content, no_own);
+    public static Boolean ShowYesNo(String title, String? content) => ShowYesNo(title, content, no_own);
 
 }

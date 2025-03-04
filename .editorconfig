@@ -5,3 +5,8 @@ dotnet_diagnostic.SYSLIB1096.severity = none
 
 # IDE0130: Namespace does not match folder structure
 dotnet_style_namespace_match_folder = false
+
+# long=>Int64
+dotnet_style_predefined_type_for_member_access = false
+dotnet_style_predefined_type_for_locals_parameters_members = false
+dotnet_diagnostic.IDE0049.severity = error
