@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.12.35527.113 d17.12
+VisualStudioVersion = 17.12.35527.113
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SunSharpUtils.Threading", "SunSharpUtils.Threading\SunSharpUtils.Threading.csproj", "{A25B4200-CA9D-4C78-9F50-E95975EA683F}"
 EndProject
@@ -18,6 +18,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SunSharpUtils.WPF", "SunSharpUtils.WPF\SunSharpUtils.WPF.csproj", "{37788EEB-C838-4035-A3B0-C6B441643055}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SunSharpUtils.Settings", "SunSharpUtils.Settings\SunSharpUtils.Settings.csproj", "{06FBAED6-9CE5-4255-BFA1-EAE2A1672E9E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tests", "Tests\Tests.csproj", "{AB01E68F-D548-46E9-810E-8FBF2AB68DD6}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -41,6 +43,10 @@ Global
 		{06FBAED6-9CE5-4255-BFA1-EAE2A1672E9E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{06FBAED6-9CE5-4255-BFA1-EAE2A1672E9E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{06FBAED6-9CE5-4255-BFA1-EAE2A1672E9E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AB01E68F-D548-46E9-810E-8FBF2AB68DD6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AB01E68F-D548-46E9-810E-8FBF2AB68DD6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AB01E68F-D548-46E9-810E-8FBF2AB68DD6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AB01E68F-D548-46E9-810E-8FBF2AB68DD6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
