@@ -5,8 +5,10 @@ namespace SunSharpUtils;
 /// <summary>
 /// Type of exception that should be handled by only displaying a message to the user
 /// </summary>
-public sealed class MessageException(String message) : Exception(message)
+public sealed class MessageException : Exception
 {
+    internal MessageException(String message) : base(message) { }
+
     /// <summary>
     /// </summary>
     public override String ToString() => Message;
@@ -43,6 +45,13 @@ public static class Err
     /// <param name="e"></param>
     /// <exception cref="Exception"></exception>
     public static void Handle(Exception e) => D.Handle(e);
+
+    /// <summary>
+    /// Passes MessageException to handler
+    /// </summary>
+    /// <param name="message"></param>
+    public static void Handle(String message) =>
+        Handle(new MessageException(message));
 
     /// <summary>
     /// Executes body action, using <see cref="Handle(Exception)"/> to handle any exception

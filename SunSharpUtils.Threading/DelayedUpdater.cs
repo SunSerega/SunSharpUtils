@@ -93,17 +93,17 @@ public readonly struct DelayedUpdateSpec
 }
 
 /// <summary>
-/// This class is used to delay updates to a single target
-/// If a new update is requested before the previous one is executed
-/// and can_delay_further is set, then the previous update is discarded
-/// This way a lot of updates can be requested, but only the last one will be executed
-/// 
-/// Note: The only guarantee is that the update will be executed at some point after the Trigger() call
-/// There is no guarantee that the update will be delayed
-/// It might start executing on previous delay after further delay has been requested
-/// In that case it will be executed second time after the new delay
+/// This class is used to delay updates to a single target                                                  <br/>
+/// If a new update is requested before the previous one is executed                                        <br/>
+/// and can_delay_further is set, then the previous update is discarded                                     <br/>
+/// This way a lot of updates can be requested, but only the last one will be executed                      <br/>
+///                                                                                                         <br/>
+/// Note: The only guarantee is that the update will be executed at some point after the Trigger() call     <br/>
+/// There is no guarantee that the update will be delayed                                                   <br/>
+/// It might start executing on previous delay after further delay has been requested                       <br/>
+/// In that case it will be executed second time after the new delay                                        <br/>
 /// </summary>
-public class DelayedUpdater
+public sealed class DelayedUpdater
 {
     private sealed class ActivationHolder
     {
@@ -180,14 +180,13 @@ public class DelayedUpdater
     };
 
     /// <summary>
-    /// Initializes a new instance of DelayedUpdater
     /// </summary>
     /// <param name="update">An action to run when delay expires</param>
     /// <param name="description">Used for thread name</param>
-    /// <param name="is_background">Whether the app can be shut down in the middle of executing update</param>
+    /// <param name="is_background">If false, the app can't be shut down in the middle of executing update</param>
     public DelayedUpdater(Action update, String description, Boolean is_background)
     {
-        var thr = new Thread(MakeThreadStart(is_background, update, ev, activation))
+        var thr = new Thread(MakeThreadStart(is_background, update, this.ev, this.activation))
         {
             IsBackground=true,
             Name = $"{nameof(DelayedUpdater)}: {description}",
@@ -218,21 +217,21 @@ public class DelayedUpdater
 
     /// <summary>
     /// </summary>
-    ~DelayedUpdater() => Err.Handle(new MessageException($"{nameof(DelayedUpdater)} is not supposed to ever go out of scope"));
+    ~DelayedUpdater() => Err.Handle($"{nameof(DelayedUpdater)} is not supposed to ever go out of scope");
 
 }
 
 /// <summary>
-/// This class is used to delay updates to multiple targets
-/// Works similarly to DelayedUpdater, but uses common thread for all updates
-/// Note: This means than an update to one target will delay updates to all other targets
+/// This class is used to delay updates to multiple targets                                     <br/>
+/// Works similarly to DelayedUpdater, but uses common thread for all updates                   <br/>
+/// Note: This means than an update to one target will delay updates to all other targets       <br/>
+/// Note2: If update is scheduled, reference to a key will be held until the update is done     <br/>
 /// </summary>
-public class DelayedMultiUpdater<TKey>
+public sealed class DelayedMultiUpdater<TKey>
     where TKey : notnull
 {
     private readonly ConcurrentDictionary<TKey, DelayedUpdateSpec> updatables = new();
     private readonly ManualResetEventSlim ev = new(false);
-    private readonly Action<TKey> update;
 
     private static String ClassName => $"{nameof(DelayedMultiUpdater<TKey>)}<{typeof(TKey)}>";
 
@@ -280,19 +279,19 @@ public class DelayedMultiUpdater<TKey>
             }
     };
     /// <summary>
-    /// Initializes a new instance of DelayedMultiUpdater
     /// </summary>
     /// <param name="update">An action to run when delay expires</param>
     /// <param name="description">Used for thread name</param>
-    /// <param name="is_background">Whether the app can be shut down in the middle of executing update</param>
+    /// <param name="is_background">If false, the app can't be shut down in the middle of executing update</param>
     public DelayedMultiUpdater(Action<TKey> update, String description, Boolean is_background)
     {
-        this.update = update;
-        new Thread(MakeThreadStart(is_background, update, ev, updatables))
+        var thr = new Thread(MakeThreadStart(is_background, update, this.ev, this.updatables))
         {
             IsBackground = true,
             Name = $"{ClassName}: {description}",
-        }.Start();
+        };
+        thr.SetApartmentState(ApartmentState.STA);
+        thr.Start();
     }
 
     /// <summary>
@@ -327,6 +326,6 @@ public class DelayedMultiUpdater<TKey>
 
     /// <summary>
     /// </summary>
-    ~DelayedMultiUpdater() => Err.Handle(new MessageException($"{ClassName} is not supposed to ever go out of scope"));
+    ~DelayedMultiUpdater() => Err.Handle($"{ClassName} is not supposed to ever go out of scope");
 
 }

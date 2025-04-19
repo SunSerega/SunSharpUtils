@@ -9,6 +9,8 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Linq.Expressions;
 
+using SunSharpUtils.Ext.Linq;
+
 using SunSharpUtils.Threading;
 
 namespace SunSharpUtils.Settings;

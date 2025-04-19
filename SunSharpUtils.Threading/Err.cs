@@ -18,10 +18,13 @@ public static class ErrExt
     {
         var trace = Environment.StackTrace;
         return t.ContinueWith(
-            t => Err.Handle(
-                t.Exception?.InnerException ??
-                    new MessageException($"Task faulted, but no exception exists. Handler trace:\n{trace}")
-            ), TaskContinuationOptions.OnlyOnFaulted
+            t =>
+            {
+                if (t.Exception?.InnerException is Exception ie)
+                    Err.Handle(ie);
+                else
+                    Err.Handle($"Task faulted, but no exception exists. Handler trace:\n{trace}");
+            }, TaskContinuationOptions.OnlyOnFaulted
         );
     }
 

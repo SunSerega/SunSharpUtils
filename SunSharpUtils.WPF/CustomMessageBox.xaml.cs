@@ -121,8 +121,9 @@ public partial class CustomMessageBox : Window
         {
             String? res = null;
             var thr = new System.Threading.Thread(() => Err.Handle(() =>
-                res = Show(title, content, owner, button_names)
-            ))
+            {
+                res = Show(title, content, owner, button_names);
+            }))
             {
                 IsBackground = true,
                 Name = $"STA thread for {nameof(CustomMessageBox)}.{nameof(Show)}",
