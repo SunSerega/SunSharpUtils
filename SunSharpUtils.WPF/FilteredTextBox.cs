@@ -37,33 +37,33 @@ public class FilteredTextBox<T> : ContentControl
         this.filter = filter;
         this.valid_enter = valid_enter;
         this.invalid_enter = invalid_enter;
-        Content = tb;
+        this.Content = this.tb;
 
-        tb.TextChanged += (o, e) => Err.Handle(() =>
+        this.tb.TextChanged += (o, e) => Err.Handle(() =>
         {
-            Edited = tb.Text != uncommited_text;
-            if (!Edited)
-                tb.Background = b_unedited;
-            else if (filter(tb.Text, out _))
-                tb.Background = b_valid;
+            this.Edited = this.tb.Text != this.uncommited_text;
+            if (!this.Edited)
+                this.tb.Background = b_unedited;
+            else if (filter(this.tb.Text, out _))
+                this.tb.Background = b_valid;
             else
-                tb.Background = b_invalid;
+                this.tb.Background = b_invalid;
         });
 
-        tb.KeyDown += (o, e) => Err.Handle(() =>
+        this.tb.KeyDown += (o, e) => Err.Handle(() =>
         {
             if (e.Key != Key.Escape) return;
-            if (tb.Text == uncommited_text) return;
-            var (sel_s, sel_l) = (tb.SelectionStart, tb.SelectionLength);
-            ResetContent(uncommited_text);
-            (tb.SelectionStart, tb.SelectionLength) = (sel_s, sel_l);
+            if (this.tb.Text == this.uncommited_text) return;
+            var (sel_s, sel_l) = (this.tb.SelectionStart, this.tb.SelectionLength);
+            this.ResetContent(this.uncommited_text);
+            (this.tb.SelectionStart, this.tb.SelectionLength) = (sel_s, sel_l);
             e.Handled = true;
         });
 
-        tb.KeyDown += (o, e) => Err.Handle(() =>
+        this.tb.KeyDown += (o, e) => Err.Handle(() =>
         {
             if (e.Key != Key.Enter) return;
-            TryCommit();
+            this.TryCommit();
         });
 
     }
@@ -91,10 +91,10 @@ public class FilteredTextBox<T> : ContentControl
     /// <param name="content"></param>
     public void ResetContent(String content)
     {
-        tb.Text = content;
-        tb.Background = Brushes.Transparent;
-        Edited = false;
-        uncommited_text = content;
+        this.tb.Text = content;
+        this.tb.Background = Brushes.Transparent;
+        this.Edited = false;
+        this.uncommited_text = content;
     }
 
     /// <summary>
@@ -103,16 +103,16 @@ public class FilteredTextBox<T> : ContentControl
     /// <returns></returns>
     public Boolean TryCommit()
     {
-        if (!filter(tb.Text, out var v))
+        if (!this.filter(this.tb.Text, out var v))
         {
-            invalid_enter();
+            this.invalid_enter();
             return false;
         }
 
-        tb.Background = Brushes.Transparent;
-        Edited = false;
-        valid_enter(v);
-        ResetContent(tb.Text);
+        this.tb.Background = Brushes.Transparent;
+        this.Edited = false;
+        this.valid_enter(v);
+        this.ResetContent(this.tb.Text);
 
         // Need this event to make sure outside code can reference this textbox in handler (unlike in the valid_enter action)
         Commited?.Invoke();

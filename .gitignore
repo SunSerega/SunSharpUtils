@@ -1,4 +1,4 @@
-﻿
+
 
 
 /.vs/
@@ -7,7 +7,5 @@
 */obj/
 
 *.csproj.user
-
-/0Deployed/*.nupkg
 
 

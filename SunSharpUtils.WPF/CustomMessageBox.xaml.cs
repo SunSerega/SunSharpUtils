@@ -18,8 +18,8 @@ public partial class CustomMessageBox : Window
     {
         internal Window? Value { get; private set; }
 
-        internal OwnerWindowContainer() => Value = WPFCommon.CurrentApp?.MainWindow.IsVisible??false ? WPFCommon.CurrentApp.MainWindow : null;
-        internal OwnerWindowContainer(Window? owner) => Value = owner;
+        internal OwnerWindowContainer() => this.Value = WPFCommon.CurrentApp?.MainWindow.IsVisible??false ? WPFCommon.CurrentApp.MainWindow : null;
+        internal OwnerWindowContainer(Window? owner) => this.Value = owner;
 
         /// <summary>
         /// </summary>
@@ -35,7 +35,7 @@ public partial class CustomMessageBox : Window
     {
         try
         {
-            InitializeComponent();
+            this.InitializeComponent();
         }
         catch (Exception e)
         {
@@ -44,17 +44,17 @@ public partial class CustomMessageBox : Window
         }
 
         if (owner.Value?.IsVisible ?? false)
-            Owner = owner.Value;
+            this.Owner = owner.Value;
 
         KeyDown += (o, e) => Err.Handle(() =>
         {
             if (e.Key == Key.Escape)
-                Close();
+                this.Close();
             else if (e.Key == Key.Enter && button_names.Length<2)
             {
                 if (button_names.Length != 0)
-                    ChosenOption = button_names[0];
-                Close();
+                    this.ChosenOption = button_names[0];
+                this.Close();
             }
             else if (e.Key == Key.C &&  Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
             {
@@ -73,16 +73,16 @@ public partial class CustomMessageBox : Window
             e.Handled = true;
         });
 
-        Title = title;
+        this.Title = title;
 
         if (content is null)
-            tb_body.Visibility = Visibility.Collapsed;
+            this.tb_body.Visibility = Visibility.Collapsed;
         else
-            tb_body.Text = content;
+            this.tb_body.Text = content;
 
         if (button_names.Length == 0)
         {
-            sp_buttons.Visibility = Visibility.Collapsed;
+            this.sp_buttons.Visibility = Visibility.Collapsed;
             return;
         }
         foreach (var button_name in button_names)
@@ -93,10 +93,10 @@ public partial class CustomMessageBox : Window
             };
             b.Click += (o, e) => Err.Handle(() =>
             {
-                ChosenOption = button_name;
-                Close();
+                this.ChosenOption = button_name;
+                this.Close();
             });
-            sp_buttons.Children.Add(b);
+            this.sp_buttons.Children.Add(b);
         }
 
     }

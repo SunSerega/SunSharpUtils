@@ -30,8 +30,8 @@ public sealed class DelayedRestarter<TKey>
         public TimeSpan RestartDelay { get; set; } = restart_delay;
         public DateTime? LastStart { get; set; } = null;
 
-        public DateTime? NextStart => LastStart + RestartDelay;
-        public TimeSpan RemainingWait => NextStart - DateTime.Now ?? TimeSpan.Zero;
+        public DateTime? NextStart => this.LastStart + this.RestartDelay;
+        public TimeSpan RemainingWait => this.NextStart - DateTime.Now ?? TimeSpan.Zero;
 
     }
 
@@ -40,7 +40,7 @@ public sealed class DelayedRestarter<TKey>
 
     /// <summary>
     /// </summary>
-    public String DebugString => restartables.Select(data => $"{data.Key}: {data.RemainingWait}").JoinToString(" | ");
+    public String DebugString => this.restartables.Select(data => $"{data.Key}: {data.RemainingWait}").JoinToString(" | ");
 
     /// <summary>
     /// How many restarts can be stacked in wait before on_fall_behind is called and the excess updates are discarded
@@ -135,8 +135,8 @@ public sealed class DelayedRestarter<TKey>
 
     private Int32? FindInd(TKey key)
     {
-        for (var i = 0; i < restartables.Count; i++)
-            if (restartables[i].Key.Equals(key))
+        for (var i = 0; i < this.restartables.Count; i++)
+            if (this.restartables[i].Key.Equals(key))
                 return i;
         return null;
     }
@@ -145,31 +145,31 @@ public sealed class DelayedRestarter<TKey>
     /// </summary>
     public void Add(TKey key, TimeSpan restart_delay)
     {
-        using var locker = new ObjectLocker(restartables);
-        if (FindInd(key) is not null)
+        using var locker = new ObjectLocker(this.restartables);
+        if (this.FindInd(key) is not null)
             throw new InvalidOperationException($"Key {key} has already been added");
-        restartables.Add(new(key, restart_delay));
-        ev.Set();
+        this.restartables.Add(new(key, restart_delay));
+        this.ev.Set();
     }
 
     /// <summary>
     /// </summary>
     public void Update(TKey key, TimeSpan restart_delay)
     {
-        using var locker = new ObjectLocker(restartables);
-        var ind = FindInd(key) ?? throw new InvalidOperationException($"Key {key} not found");
-        restartables[ind].RestartDelay = restart_delay;
-        ev.Set();
+        using var locker = new ObjectLocker(this.restartables);
+        var ind = this.FindInd(key) ?? throw new InvalidOperationException($"Key {key} not found");
+        this.restartables[ind].RestartDelay = restart_delay;
+        this.ev.Set();
     }
 
     /// <summary>
     /// </summary>
     public void Remove(TKey key)
     {
-        using var locker = new ObjectLocker(restartables);
-        var ind = FindInd(key) ?? throw new InvalidOperationException($"Key {key} not found");
-        restartables.RemoveAt(ind);
-        ev.Set();
+        using var locker = new ObjectLocker(this.restartables);
+        var ind = this.FindInd(key) ?? throw new InvalidOperationException($"Key {key} not found");
+        this.restartables.RemoveAt(ind);
+        this.ev.Set();
     }
 
     /// <summary>

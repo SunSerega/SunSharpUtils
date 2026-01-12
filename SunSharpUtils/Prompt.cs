@@ -16,17 +16,17 @@ public static class Prompt
         /// <summary>
         /// title, content
         /// </summary>
-        public Action<String, String?> Notify { get; init; }
+        public required Action<String, String?> Notify { get; init; }
 
         /// <summary>
         /// title, content, return true if yes
         /// </summary>
-        public Func<String, String?, Boolean> AskYesNo { get; init; }
+        public required Func<String, String?, Boolean> AskYesNo { get; init; }
 
         /// <summary>
         /// title, content, options, return selected option or null
         /// </summary>
-        public Func<String, String?, String[], String?> AskAny { get; init; }
+        public required Func<String, String?, String[], String?> AskAny { get; init; }
 
     }
     private static DelegateStore? delegate_store = null;

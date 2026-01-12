@@ -54,7 +54,7 @@ public readonly struct DelayedUpdateSpec
     /// <returns></returns>
     public static DelayedUpdateSpec Urgent(TimeSpan delay) => FromDelay(delay, delay);
 
-    internal TimeSpan GetRemainingWait() => earliest_time - DateTime.Now;
+    internal TimeSpan GetRemainingWait() => this.earliest_time - DateTime.Now;
 
     internal static DelayedUpdateSpec Combine(DelayedUpdateSpec prev, DelayedUpdateSpec next, out Boolean need_ev_set)
     {
@@ -88,7 +88,7 @@ public readonly struct DelayedUpdateSpec
 
     /// <summary>
     /// </summary>
-    public override Int32 GetHashCode() => HashCode.Combine(earliest_time, urgent_time);
+    public override Int32 GetHashCode() => HashCode.Combine(this.earliest_time, this.urgent_time);
 
 }
 
@@ -109,24 +109,24 @@ public sealed class DelayedUpdater
     {
         private DelayedUpdateSpec? requested;
 
-        public Boolean IsRequested => requested.HasValue;
+        public Boolean IsRequested => this.requested.HasValue;
 
-        public TimeSpan GetRemainingWait() => requested!.Value.GetRemainingWait();
+        public TimeSpan GetRemainingWait() => this.requested!.Value.GetRemainingWait();
 
         public void Clear()
         {
             using var this_locker = new ObjectLocker(this);
-            requested = null;
+            this.requested = null;
         }
 
         public Boolean TryUpdate(DelayedUpdateSpec next)
         {
             using var this_locker = new ObjectLocker(this);
             var need_ev_set = true;
-            if (requested.HasValue)
+            if (this.requested.HasValue)
             {
-                next = DelayedUpdateSpec.Combine(requested.Value, next, out need_ev_set);
-                if (requested == next)
+                next = DelayedUpdateSpec.Combine(this.requested.Value, next, out need_ev_set);
+                if (this.requested == next)
                     return false;
             }
             this.requested = next;
@@ -201,19 +201,19 @@ public sealed class DelayedUpdater
     /// <param name="spec"></param>
     public void Trigger(DelayedUpdateSpec spec)
     {
-        if (activation.TryUpdate(spec))
-            ev.Set();
+        if (this.activation.TryUpdate(spec))
+            this.ev.Set();
     }
 
     /// <summary>
     /// </summary>
-    public void TriggerNow() => Trigger(DelayedUpdateSpec.Now);
+    public void TriggerNow() => this.Trigger(DelayedUpdateSpec.Now);
     /// <summary>
     /// </summary>
-    public void TriggerPostpone(TimeSpan delay) => Trigger(DelayedUpdateSpec.Postpone(delay));
+    public void TriggerPostpone(TimeSpan delay) => this.Trigger(DelayedUpdateSpec.Postpone(delay));
     /// <summary>
     /// </summary>
-    public void TriggerUrgent(TimeSpan delay) => Trigger(DelayedUpdateSpec.Urgent(delay));
+    public void TriggerUrgent(TimeSpan delay) => this.Trigger(DelayedUpdateSpec.Urgent(delay));
 
     /// <summary>
     /// </summary>
@@ -303,7 +303,7 @@ public sealed class DelayedMultiUpdater<TKey>
     {
         var next_val = spec;
         var need_ev_set = true;
-        updatables.AddOrUpdate(key, next_val, (key, prev_val) =>
+        this.updatables.AddOrUpdate(key, next_val, (key, prev_val) =>
         {
             next_val = DelayedUpdateSpec.Combine(prev_val, next_val, out need_ev_set);
             if (prev_val == next_val)
@@ -311,18 +311,18 @@ public sealed class DelayedMultiUpdater<TKey>
             return next_val;
         });
         if (need_ev_set)
-            ev.Set();
+            this.ev.Set();
     }
 
     /// <summary>
     /// </summary>
-    public void TriggerNow(TKey key) => Trigger(key, DelayedUpdateSpec.Now);
+    public void TriggerNow(TKey key) => this.Trigger(key, DelayedUpdateSpec.Now);
     /// <summary>
     /// </summary>
-    public void TriggerPostpone(TKey key, TimeSpan delay) => Trigger(key, DelayedUpdateSpec.Postpone(delay));
+    public void TriggerPostpone(TKey key, TimeSpan delay) => this.Trigger(key, DelayedUpdateSpec.Postpone(delay));
     /// <summary>
     /// </summary>
-    public void TriggerUrgent(TKey key, TimeSpan delay) => Trigger(key, DelayedUpdateSpec.Urgent(delay));
+    public void TriggerUrgent(TKey key, TimeSpan delay) => this.Trigger(key, DelayedUpdateSpec.Urgent(delay));
 
     /// <summary>
     /// </summary>

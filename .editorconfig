@@ -13,3 +13,16 @@ dotnet_style_prefer_collection_expression = never
 dotnet_style_predefined_type_for_member_access = false
 dotnet_style_predefined_type_for_locals_parameters_members = false
 dotnet_diagnostic.IDE0049.severity = error
+
+# this. preferences
+dotnet_style_qualification_for_field = true:suggestion
+dotnet_style_qualification_for_event = true:suggestion
+dotnet_style_qualification_for_property = true:suggestion
+dotnet_style_qualification_for_method = true:suggestion
+
+# usings
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = true
+
+# case with {}
+csharp_indent_case_contents_when_block = false

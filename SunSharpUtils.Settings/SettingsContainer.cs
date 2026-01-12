@@ -46,13 +46,13 @@ public abstract class SettingsContainer<TSelf, TData>
 
     /// <summary>
     /// </summary>
-    public String GetSettingsFile() => main_save_fname;
+    public String GetSettingsFile() => this.main_save_fname;
     /// <summary>
     /// </summary>
-    public String GetSettingsBackupFile() => back_save_fname;
+    public String GetSettingsBackupFile() => this.back_save_fname;
     /// <summary>
     /// </summary>
-    public String GetSettingsDir() => Path.GetDirectoryName(main_save_fname)!;
+    public String GetSettingsDir() => Path.GetDirectoryName(this.main_save_fname)!;
 
     /// <summary>
     /// Encoding used for settings files
@@ -101,7 +101,7 @@ public abstract class SettingsContainer<TSelf, TData>
         public void Set<TField>(FieldToken<TField> token, TField value)
             where TField : IEquatable<TField>?
         {
-            token.Set(ref data, value);
+            token.Set(ref this.data, value);
         }
 
     }
@@ -234,33 +234,33 @@ public abstract class SettingsContainer<TSelf, TData>
 
         this.save_all = save_all;
 
-        if (!File.Exists(main_save_fname))
+        if (!File.Exists(this.main_save_fname))
         {
-            if (File.Exists(back_save_fname))
+            if (File.Exists(this.back_save_fname))
             {
                 if (!Prompt.AskYesNo("Settings inconsistency", $"Backup file exists, but main settings file is missing:\n{path}\n\nSimply load backup?"))
                     throw new SettingsLoadUserAbortedException();
-                data = LoadData(back_save_fname, save_all, out _);
-                FullResave();
+                this.data = LoadData(this.back_save_fname, save_all, out _);
+                this.FullResave();
             }
             else
             {
-                data = default_data;
-                File.Create(main_save_fname).Close();
+                this.data = default_data;
+                File.Create(this.main_save_fname).Close();
             }
             return;
         }
 
-        if (!File.Exists(back_save_fname))
+        if (!File.Exists(this.back_save_fname))
         {
-            data = LoadData(main_save_fname, save_all, out var need_resave);
+            this.data = LoadData(this.main_save_fname, save_all, out var need_resave);
             if (need_resave)
-                FullResave();
+                this.FullResave();
             return;
         }
 
-        var main_data = LoadData(main_save_fname, save_all, out _);
-        var back_data = LoadData(back_save_fname, save_all, out _);
+        var main_data = LoadData(this.main_save_fname, save_all, out _);
+        var back_data = LoadData(this.back_save_fname, save_all, out _);
 
         foreach (var token in field_tokens.Values)
         {
@@ -303,8 +303,8 @@ public abstract class SettingsContainer<TSelf, TData>
             }
         }
 
-        data = main_data;
-        FullResave();
+        this.data = main_data;
+        this.FullResave();
     }
 
     #endregion
@@ -348,7 +348,7 @@ public abstract class SettingsContainer<TSelf, TData>
 
         /// <summary>
         /// </summary>
-        public override String Name => name;
+        public override String Name => this.name;
 
         /// <summary>
         /// </summary>
@@ -356,26 +356,26 @@ public abstract class SettingsContainer<TSelf, TData>
         {
             if (tokens_initialized)
                 throw new InvalidOperationException("Field tokens must be defined before the first settings container is created");
-            name = field.Name;
-            if (name.EndsWith('!'))
+            this.name = field.Name;
+            if (this.name.EndsWith('!'))
                 throw new ArgumentException("Field name must not end with '!', as it is reserved for incremental value deletion");
             {
                 var param = Expression.Parameter(typeof(TData).MakeByRefType());
                 var body = Expression.Field(param, field);
                 var lambda = Expression.Lambda<DGetter>(body, param);
-                getter = lambda.Compile();
+                this.getter = lambda.Compile();
             }
             {
                 var param1 = Expression.Parameter(typeof(TData).MakeByRefType());
                 var param2 = Expression.Parameter(typeof(TField));
                 var body = Expression.Assign(Expression.Field(param1, field), param2);
                 var lambda = Expression.Lambda<DSetter>(body, param1, param2);
-                setter = lambda.Compile();
+                this.setter = lambda.Compile();
             }
             this.def_val = def_val;
             this.saver = saver;
-            field_tokens.Add(name, this);
-            setter(ref default_data, def_val);
+            field_tokens.Add(this.name, this);
+            this.setter(ref default_data, def_val);
         }
 
         private static Boolean Equals(TField a, TField b) =>
@@ -383,7 +383,7 @@ public abstract class SettingsContainer<TSelf, TData>
 
         /// <summary>
         /// </summary>
-        public TField Get(ref TData data) => getter(ref data);
+        public TField Get(ref TData data) => this.getter(ref data);
         /// <summary>
         /// </summary>
         /// <param name="data"></param>
@@ -391,37 +391,37 @@ public abstract class SettingsContainer<TSelf, TData>
         /// <returns>true if value was updated</returns>
         public Boolean Set(ref TData data, TField value)
         {
-            if (Equals(value, Get(ref data)))
+            if (Equals(value, this.Get(ref data)))
                 return false;
-            setter(ref data, value);
+            this.setter(ref data, value);
             return true;
         }
 
         /// <summary>
         /// </summary>
-        public TField Get(TSelf container) => Get(ref container.data);
+        public TField Get(TSelf container) => this.Get(ref container.data);
         /// <summary>
         /// Sets the value and saves it to the settings file, if it has changed
         /// </summary>
         public void Set(TSelf container, TField value)
         {
-            if (!Set(ref container.data, value))
+            if (!this.Set(ref container.data, value))
                 return;
-            if (Equals(value, def_val))
-                container.IncrementalDelete(name);
+            if (Equals(value, this.def_val))
+                container.IncrementalDelete(this.name);
             else
-                container.IncrementalSave(name, saver.Serialize(value));
+                container.IncrementalSave(this.name, this.saver.Serialize(value));
             delayed_resave.Trigger(container, DelayedUpdateSpec.FromDelay(earliest_delay: ResaveDelay, urgent_delay: ResaveMaxDelay));
         }
 
-        internal override Boolean IsDefault(ref TData data) => Equals(getter(ref data), def_val);
-        internal override void SetDefault(ref TData res) => setter(ref res, def_val);
+        internal override Boolean IsDefault(ref TData data) => Equals(this.getter(ref data), this.def_val);
+        internal override void SetDefault(ref TData res) => this.setter(ref res, this.def_val);
 
-        internal override Boolean IsEqual(ref TData data1, ref TData data2) => Equals(getter(ref data1), getter(ref data2));
-        internal override void Copy(ref TData from, ref TData to) => setter(ref to, getter(ref from));
+        internal override Boolean IsEqual(ref TData data1, ref TData data2) => Equals(this.getter(ref data1), this.getter(ref data2));
+        internal override void Copy(ref TData from, ref TData to) => this.setter(ref to, this.getter(ref from));
 
-        internal override String Serialize(ref TData res) => saver.Serialize(getter(ref res));
-        internal override void Deserialize(ref TData res, String v) => setter(ref res, saver.Deserialize(v));
+        internal override String Serialize(ref TData res) => this.saver.Serialize(this.getter(ref res));
+        internal override void Deserialize(ref TData res, String v) => this.setter(ref res, this.saver.Deserialize(v));
 
     }
 
@@ -474,42 +474,42 @@ public abstract class SettingsContainer<TSelf, TData>
 
     private void ActOnDisk(Action act)
     {
-        using var disk_locker = new ObjectLocker(disk_lock);
-        if (is_shut_down) return;
+        using var disk_locker = new ObjectLocker(this.disk_lock);
+        if (this.is_shut_down) return;
 
-        if (!File.Exists(back_save_fname))
-            File.Copy(main_save_fname, back_save_fname);
+        if (!File.Exists(this.back_save_fname))
+            File.Copy(this.main_save_fname, this.back_save_fname);
 
         act();
 
         // Locker disposed
     }
 
-    private void IncrementalSave(String name, String value) => ActOnDisk(() =>
+    private void IncrementalSave(String name, String value) => this.ActOnDisk(() =>
     {
-        File.AppendAllLines(main_save_fname, [$"{name}={value}"], SettingsEncoding);
-        File.AppendAllLines(back_save_fname, [$"{name}={value}"], SettingsEncoding);
+        File.AppendAllLines(this.main_save_fname, [$"{name}={value}"], SettingsEncoding);
+        File.AppendAllLines(this.back_save_fname, [$"{name}={value}"], SettingsEncoding);
     });
 
-    private void IncrementalDelete(String name) => ActOnDisk(() =>
+    private void IncrementalDelete(String name) => this.ActOnDisk(() =>
     {
-        File.AppendAllLines(main_save_fname, [$"{name}!="], SettingsEncoding);
-        File.AppendAllLines(back_save_fname, [$"{name}!="], SettingsEncoding);
+        File.AppendAllLines(this.main_save_fname, [$"{name}!="], SettingsEncoding);
+        File.AppendAllLines(this.back_save_fname, [$"{name}!="], SettingsEncoding);
     });
 
-    private void FullResave() => ActOnDisk(() =>
+    private void FullResave() => this.ActOnDisk(() =>
     {
-        var sw = new StreamWriter(main_save_fname, false, SettingsEncoding);
+        var sw = new StreamWriter(this.main_save_fname, false, SettingsEncoding);
 
         foreach (var token in field_tokens.Values)
         {
-            if (!save_all && token.IsDefault(ref data))
+            if (!this.save_all && token.IsDefault(ref this.data))
                 continue;
-            sw.WriteLine($"{token.Name}={token.Serialize(ref data)}");
+            sw.WriteLine($"{token.Name}={token.Serialize(ref this.data)}");
         }
 
         sw.Close();
-        File.Delete(back_save_fname);
+        File.Delete(this.back_save_fname);
     });
 
     #endregion
@@ -522,25 +522,25 @@ public abstract class SettingsContainer<TSelf, TData>
     /// <exception cref="InvalidOperationException">If called more than once</exception>
     public void Shutdown()
     {
-        using var disk_locker = new ObjectLocker(disk_lock);
-        if (is_shut_down)
-            throw new InvalidOperationException($"{ClassName} stored at {main_save_fname} is already shut down");
-        is_shut_down = true;
-        if (File.Exists(main_save_fname))
-            File.Delete(main_save_fname);
-        if (File.Exists(back_save_fname))
-            File.Delete(back_save_fname);
+        using var disk_locker = new ObjectLocker(this.disk_lock);
+        if (this.is_shut_down)
+            throw new InvalidOperationException($"{ClassName} stored at {this.main_save_fname} is already shut down");
+        this.is_shut_down = true;
+        if (File.Exists(this.main_save_fname))
+            File.Delete(this.main_save_fname);
+        if (File.Exists(this.back_save_fname))
+            File.Delete(this.back_save_fname);
     }
 
     /// <summary>
     /// </summary>
     ~SettingsContainer()
     {
-        if (is_shut_down)
+        if (this.is_shut_down)
             return;
 
-        Prompt.Notify("Settings not shut down", $"{ClassName}\n{main_save_fname}\n\nMake sure to call .Shutdown() before deleting an object with settings");
-        Shutdown();
+        Prompt.Notify("Settings not shut down", $"{ClassName}\n{this.main_save_fname}\n\nMake sure to call .Shutdown() before deleting an object with settings");
+        this.Shutdown();
     }
 
     #endregion

@@ -11,7 +11,7 @@ public sealed class MessageException : Exception
 
     /// <summary>
     /// </summary>
-    public override String ToString() => Message;
+    public override String ToString() => this.Message;
 }
 
 /// <summary>
@@ -26,7 +26,7 @@ public static class Err
         /// <summary>
         /// Error handler
         /// </summary>
-        public Action<Exception> Handle { get; init; }
+        public required Action<Exception> Handle { get; init; }
     }
     private static DelegateStore? delegate_store = null;
     private static DelegateStore D => delegate_store ?? throw new InvalidOperationException("Err.Init() not called");

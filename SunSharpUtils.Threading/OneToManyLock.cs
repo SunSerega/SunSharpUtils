@@ -26,6 +26,8 @@ public sealed class OneToManyLock()
     private volatile Int32 doing_many = 0;
     // Side A can execute if at any moment doing_B is zero, after doing_A has been set to non-zero
 
+    private Int64 last_many_lock_end_ticks;
+
     // *LockedState.Begin methods:
     // - Not the constructor, because .End needs to be called even if .Begin fails midway
 
@@ -35,69 +37,86 @@ public sealed class OneToManyLock()
     /// </summary>
     public struct OneLockedState(OneToManyLock root) : IDisposable
     {
+        private readonly OneToManyLock root = root;
         private Boolean is_locked = false;
         private Boolean need_dec = false;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private readonly void Inc()
         {
-            Interlocked.Increment(ref root.doing_one);
-            root.one_wh.Reset();
+            Interlocked.Increment(ref this.root.doing_one);
+            this.root.one_wh.Reset();
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private readonly void Dec()
         {
-            if (0 != Interlocked.Decrement(ref root.doing_one))
+            if (0 != Interlocked.Decrement(ref this.root.doing_one))
                 return;
-            root.one_wh.Set();
+            this.root.one_wh.Set();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void BeginWithPriority()
         {
-            Inc();
-            need_dec = true;
+            this.Inc();
+            this.need_dec = true;
 
             while (true)
             {
-                if (root.doing_many == 0)
+                if (this.root.doing_many == 0)
                     break;
-                root.many_wh.Wait();
+                this.root.many_wh.Wait();
             }
 
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void BeginWithoutPriority()
-        {
-
-            while (true)
-            {
-                Inc();
-                if (root.doing_many == 0)
-                    break;
-                Dec();
-                root.many_wh.Wait();
-            }
-
-            need_dec = true;
         }
 
         /// <summary>
         /// </summary>
+        /// <param name="one_lock_delay">If non-zero, will wait extra time after all many state are unlocked, before trying to lock this one state</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void BeginWithoutPriority(TimeSpan one_lock_delay)
+        {
+
+            while (true)
+            {
+                // Extra check, to not slow down the high volume work that needs many-locked state
+                if (this.root.doing_many == 0)
+                {
+                    this.Inc();
+                    if (this.root.doing_many == 0)
+                        break;
+                    this.Dec();
+                }
+                this.root.many_wh.Wait();
+                if (one_lock_delay != TimeSpan.Zero)
+                {
+                    var end_time = new DateTime(ticks: this.root.last_many_lock_end_ticks) + one_lock_delay;
+                    var wait_time = end_time - DateTime.UtcNow;
+                    if (wait_time > TimeSpan.Zero)
+                        Thread.Sleep(wait_time);
+                }
+            }
+
+            this.need_dec = true;
+        }
+
+        /// <summary>
+        /// </summary>
+        /// <param name="with_priority">If true, will not allow any new many states to lock, until this one state is unlocked</param>
+        /// <exception cref="InvalidOperationException"></exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Begin(Boolean with_priority)
         {
-            if (is_locked)
+            if (this.is_locked)
                 throw new InvalidOperationException();
 
             if (with_priority)
-                BeginWithPriority();
+                this.BeginWithPriority();
             else
-                BeginWithoutPriority();
+                this.BeginWithoutPriority(one_lock_delay: TimeSpan.Zero);
 
-            Monitor.Enter(root.sync_lock);
-            is_locked = true;
+            Monitor.Enter(this.root.sync_lock);
+            this.is_locked = true;
         }
 
         /// <summary>
@@ -105,19 +124,19 @@ public sealed class OneToManyLock()
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void End()
         {
-            if (need_dec)
+            if (this.need_dec)
             {
-                Dec();
-                need_dec = false;
+                this.Dec();
+                this.need_dec = false;
             }
 
-            if (is_locked)
+            if (this.is_locked)
             {
-                Monitor.Exit(root.sync_lock);
-                is_locked = false;
+                Monitor.Exit(this.root.sync_lock);
+                this.is_locked = false;
             }
         }
-        void IDisposable.Dispose() => End();
+        void IDisposable.Dispose() => this.End();
 
     }
     /// <summary>
@@ -129,7 +148,7 @@ public sealed class OneToManyLock()
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public T OneLocked<T>(Func<T> act, Boolean with_priority)
     {
-        using var state = NewOneState();
+        using var state = this.NewOneState();
         state.Begin(with_priority);
         return act();
     }
@@ -139,7 +158,7 @@ public sealed class OneToManyLock()
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void OneLocked(Action act, Boolean with_priority)
     {
-        using var state = NewOneState();
+        using var state = this.NewOneState();
         state.Begin(with_priority);
         act();
     }
@@ -152,20 +171,21 @@ public sealed class OneToManyLock()
     /// </summary>
     public struct ManyLockedState(OneToManyLock root) : IDisposable
     {
+        private readonly OneToManyLock root = root;
         private Boolean is_locked = false;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private readonly void Inc()
         {
-            Interlocked.Increment(ref root.doing_many);
-            root.many_wh.Reset();
+            Interlocked.Increment(ref this.root.doing_many);
+            this.root.many_wh.Reset();
         }
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private readonly void Dec()
         {
-            if (0 != Interlocked.Decrement(ref root.doing_many))
+            if (0 != Interlocked.Decrement(ref this.root.doing_many))
                 return;
-            root.many_wh.Set();
+            this.root.many_wh.Set();
         }
 
         /// <summary>
@@ -173,19 +193,19 @@ public sealed class OneToManyLock()
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Begin()
         {
-            if (is_locked)
+            if (this.is_locked)
                 throw new InvalidOperationException();
 
             while (true)
             {
-                Inc();
-                if (root.doing_one == 0)
+                this.Inc();
+                if (this.root.doing_one == 0)
                     break;
-                Dec();
-                root.one_wh.Wait();
+                this.Dec();
+                this.root.one_wh.Wait();
             }
 
-            is_locked = true;
+            this.is_locked = true;
         }
 
         /// <summary>
@@ -193,12 +213,15 @@ public sealed class OneToManyLock()
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void End()
         {
-            if (!is_locked)
+            if (!this.is_locked)
                 return;
-            Dec();
-            is_locked = false;
+            //TODO Only need this if the one lock would be used with 1. no priority, and 2. with delay
+            // - The same lock would probably be either always with priority, or always without
+            ThreadingCommon.InterlockedSetMax(ref this.root.last_many_lock_end_ticks, DateTime.UtcNow.Ticks);
+            this.Dec();
+            this.is_locked = false;
         }
-        void IDisposable.Dispose() => End();
+        void IDisposable.Dispose() => this.End();
 
     }
     /// <summary>
@@ -210,7 +233,7 @@ public sealed class OneToManyLock()
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public T ManyLocked<T>(Func<T> act)
     {
-        using var state = NewManyState();
+        using var state = this.NewManyState();
         state.Begin();
         return act();
     }
@@ -220,7 +243,7 @@ public sealed class OneToManyLock()
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void ManyLocked(Action act)
     {
-        using var state = NewManyState();
+        using var state = this.NewManyState();
         state.Begin();
         act();
     }

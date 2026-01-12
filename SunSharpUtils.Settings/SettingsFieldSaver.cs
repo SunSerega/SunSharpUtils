@@ -24,7 +24,7 @@ public abstract class SettingsFieldSaver<TField>
     /// </summary>
     public String Serialize(TField value)
     {
-        var res = SerializeImpl(value);
+        var res = this.SerializeImpl(value);
         if (StringSaver.Utils.HasNewlines(res))
             throw new FormatException("Newline characters are not allowed in setting values");
         return res;
@@ -39,7 +39,7 @@ public abstract class SettingsFieldSaver<TField>
     {
         if (StringSaver.Utils.HasNewlines(value))
             throw new FormatException("Newline characters are not allowed in setting values");
-        return DeserializeImpl(value);
+        return this.DeserializeImpl(value);
     }
     
     private sealed class Dummy(Func<TField, String> ser, Func<String, TField> deser) : SettingsFieldSaver<TField>

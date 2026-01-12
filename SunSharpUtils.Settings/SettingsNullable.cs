@@ -37,11 +37,11 @@ public readonly struct SettingsNullable<T>(T? value) : IEquatable<SettingsNullab
     public Boolean Equals(SettingsNullable<T> other) => this == other;
     /// <summary>
     /// </summary>
-    public override Boolean Equals(Object? obj) => obj is SettingsNullable<T> other && Equals(other);
+    public override Boolean Equals(Object? obj) => obj is SettingsNullable<T> other && this.Equals(other);
 
     /// <summary>
     /// </summary>
-    public override Int32 GetHashCode() => HashCode.Combine(Value);
+    public override Int32 GetHashCode() => HashCode.Combine(this.Value);
 
     static String ISettingsSaveable<SettingsNullable<T>>.SerializeSetting(SettingsNullable<T> setting)
     {

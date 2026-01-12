@@ -46,6 +46,6 @@ public readonly struct ObjectLocker : IDisposable
     /// <summary>
     /// Releases the lock on the object
     /// </summary>
-    public void Dispose() => Monitor.Exit(o);
+    public void Dispose() => Monitor.Exit(this.o);
 
 }
