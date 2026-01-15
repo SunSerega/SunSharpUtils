@@ -29,7 +29,7 @@ public static class LinqExt
                 return false;
             if (!mv1)
                 break;
-            if (!comparer.Equals(en1.Current,  en2.Current))
+            if (!comparer.Equals(en1.Current, en2.Current))
                 return false;
         }
         return true;
@@ -116,7 +116,7 @@ public static class LinqExt
     }
     /// <summary>
     /// </summary>
-    public static IEnumerable<(T,T)> Pairwise<T>(this IEnumerable<T> seq) => seq.Pairwise((a, b) => (a, b));
+    public static IEnumerable<(T, T)> Pairwise<T>(this IEnumerable<T> seq) => seq.Pairwise((a, b) => (a, b));
 
     /// <summary>
     /// </summary>

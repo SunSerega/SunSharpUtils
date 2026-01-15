@@ -1,16 +1,12 @@
 ﻿using System;
-
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
 using System.Text;
 
-using System.Linq;
-using System.Collections.Generic;
-
-using System.Reflection;
-using System.Linq.Expressions;
-
 using SunSharpUtils.Ext.Linq;
-
 using SunSharpUtils.Threading;
 
 namespace SunSharpUtils.Settings;
@@ -71,7 +67,7 @@ public abstract class SettingsContainer<TSelf, TData>
     /// <summary>
     /// Pretty name for error messages
     /// </summary>
-    public static String ClassName => $"{typeof(TSelf)} = {nameof(SettingsContainer<TSelf, TData>)}<{typeof(TData)}>";
+    public static String ClassName => $"{typeof(TSelf)} = {nameof(SettingsContainer<,>)}<{typeof(TData)}>";
 
     private static readonly DelayedMultiUpdater<TSelf> delayed_resave = new(
         container => container.FullResave(),
@@ -202,7 +198,7 @@ public abstract class SettingsContainer<TSelf, TData>
             {
                 "SettingsContainer field mismatch",
             };
-            
+
             var missing = field_names.Except(field_tokens.Keys);
             if (missing.Any())
                 messages.Add($"Missing tokens: {missing.JoinToString(", ")}");
@@ -226,7 +222,7 @@ public abstract class SettingsContainer<TSelf, TData>
     protected SettingsContainer(String path, Boolean save_all)
     {
         CheckTokenInitStatus();
-        
+
         path = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         this.main_save_fname = $"{path}.dat";

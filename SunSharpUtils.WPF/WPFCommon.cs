@@ -22,6 +22,10 @@ public static class WPFCommon
     public static void Init(Application app)
     {
 
+        if (CurrentApp != null)
+            throw new InvalidOperationException($"Already initialized");
+        CurrentApp = app;
+
         Err.Init(new()
         {
             Handle = e => CustomMessageBox.ShowOK(title: "ERROR", content: e.ToString())
@@ -39,10 +43,6 @@ public static class WPFCommon
             if (e.IsTerminating) return;
             Err.Handle((Exception)e.ExceptionObject);
         };
-        
-        if (CurrentApp != null)
-            throw new InvalidOperationException($"Already initialized");
-        CurrentApp = app;
 
         Common.OnShutdown += exit_code =>
             CurrentApp?.Dispatcher.Invoke(() => CurrentApp.Shutdown(exit_code));

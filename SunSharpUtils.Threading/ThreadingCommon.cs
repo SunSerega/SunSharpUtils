@@ -38,13 +38,13 @@ public static class ThreadingCommon
     {
         var is_background = Thread.CurrentThread.IsBackground;
         Thread.CurrentThread.IsBackground = new_is_background;
-		try
-		{
+        try
+        {
             act();
-		}
-		finally
-		{
-			Thread.CurrentThread.IsBackground = is_background;
+        }
+        finally
+        {
+            Thread.CurrentThread.IsBackground = is_background;
         }
     }
 

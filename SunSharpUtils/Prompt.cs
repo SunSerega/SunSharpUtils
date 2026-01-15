@@ -61,7 +61,7 @@ public static class Prompt
     /// <summary>
     /// </summary>
     public static TEnum? AskAny<TEnum>(String title, String? content, params TEnum[] options)
-        where TEnum: struct, Enum
+        where TEnum : struct, Enum
     {
         var res = AskAny(title, content, Array.ConvertAll(options, e => e.ToString()));
         if (res is null) return null;

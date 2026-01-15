@@ -41,7 +41,7 @@ public abstract class SettingsFieldSaver<TField>
             throw new FormatException("Newline characters are not allowed in setting values");
         return this.DeserializeImpl(value);
     }
-    
+
     private sealed class Dummy(Func<TField, String> ser, Func<String, TField> deser) : SettingsFieldSaver<TField>
     {
         protected override String SerializeImpl(TField value) => ser(value);
@@ -94,7 +94,7 @@ public abstract class SettingsFieldSaver<TField>
 
         if (typeof(TField).GetInterfaces().Any(intr => intr.IsGenericType && intr.GetGenericTypeDefinition() == typeof(ISettingsSaveable<>)))
             Default = (SettingsFieldSaver<TField>?)Activator.CreateInstance(typeof(SelfReporterSaver<>).MakeGenericType(typeof(TField), typeof(TField)));
-        
+
     }
 
 }
