@@ -17,7 +17,7 @@ namespace SunSharpUtils.Settings;
 // Attributes could do the same, but that would be junky
 //
 // They also allow comparing main and backup files without hacks like initializing 2 instances of GlobalSettings class
-// Handling this without tokens would require loading at least the backup file into a dictionary first, to handle missing (default) and duplicate (overriden) keys
+// Handling this without tokens would require loading at least the backup file into a dictionary first, to handle missing (default) and duplicate (overridden) keys
 
 /// <summary>
 /// Throws when user aborts loading settings when prompted to fix inconsistencies
@@ -34,21 +34,21 @@ public abstract class SettingsContainer<TSelf, TData>
     where TSelf : SettingsContainer<TSelf, TData>
     where TData : struct
 {
-    private readonly String main_save_fname;
-    private readonly String back_save_fname;
+    private readonly String main_save_file_path;
+    private readonly String back_save_file_path;
     private readonly Boolean save_all;
     private TData data;
     private Boolean is_shut_down = false;
 
     /// <summary>
     /// </summary>
-    public String GetSettingsFile() => this.main_save_fname;
+    public String GetSettingsFile() => this.main_save_file_path;
     /// <summary>
     /// </summary>
-    public String GetSettingsBackupFile() => this.back_save_fname;
+    public String GetSettingsBackupFile() => this.back_save_file_path;
     /// <summary>
     /// </summary>
-    public String GetSettingsDir() => Path.GetDirectoryName(this.main_save_fname)!;
+    public String GetSettingsDir() => Path.GetDirectoryName(this.main_save_file_path)!;
 
     /// <summary>
     /// Encoding used for settings files
@@ -225,38 +225,38 @@ public abstract class SettingsContainer<TSelf, TData>
 
         path = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        this.main_save_fname = $"{path}.dat";
-        this.back_save_fname = $"{path}-Backup.dat";
+        this.main_save_file_path = $"{path}.dat";
+        this.back_save_file_path = $"{path}-Backup.dat";
 
         this.save_all = save_all;
 
-        if (!File.Exists(this.main_save_fname))
+        if (!File.Exists(this.main_save_file_path))
         {
-            if (File.Exists(this.back_save_fname))
+            if (File.Exists(this.back_save_file_path))
             {
                 if (!Prompt.AskYesNo("Settings inconsistency", $"Backup file exists, but main settings file is missing:\n{path}\n\nSimply load backup?"))
                     throw new SettingsLoadUserAbortedException();
-                this.data = LoadData(this.back_save_fname, save_all, out _);
+                this.data = LoadData(this.back_save_file_path, save_all, out _);
                 this.FullResave();
             }
             else
             {
                 this.data = default_data;
-                File.Create(this.main_save_fname).Close();
+                File.Create(this.main_save_file_path).Close();
             }
             return;
         }
 
-        if (!File.Exists(this.back_save_fname))
+        if (!File.Exists(this.back_save_file_path))
         {
-            this.data = LoadData(this.main_save_fname, save_all, out var need_resave);
+            this.data = LoadData(this.main_save_file_path, save_all, out var need_resave);
             if (need_resave)
                 this.FullResave();
             return;
         }
 
-        var main_data = LoadData(this.main_save_fname, save_all, out _);
-        var back_data = LoadData(this.back_save_fname, save_all, out _);
+        var main_data = LoadData(this.main_save_file_path, save_all, out _);
+        var back_data = LoadData(this.back_save_file_path, save_all, out _);
 
         foreach (var token in field_tokens.Values)
         {
@@ -284,8 +284,8 @@ public abstract class SettingsContainer<TSelf, TData>
             const String P_Back = "Take backup";
             const String P_Abort = "Abort";
 
-            var choise = Prompt.AskAny(title, content_sb.ToString(), [P_Main, P_Back, P_Abort]);
-            switch (choise)
+            var choice = Prompt.AskAny(title, content_sb.ToString(), [P_Main, P_Back, P_Abort]);
+            switch (choice)
             {
                 case P_Main:
                     break;
@@ -295,7 +295,7 @@ public abstract class SettingsContainer<TSelf, TData>
                 case P_Abort or null:
                     throw new SettingsLoadUserAbortedException();
                 default:
-                    throw new NotImplementedException($"Invalid option: {choise}");
+                    throw new NotImplementedException($"Invalid option: {choice}");
             }
         }
 
@@ -473,8 +473,8 @@ public abstract class SettingsContainer<TSelf, TData>
         using var disk_locker = new ObjectLocker(this.disk_lock);
         if (this.is_shut_down) return;
 
-        if (!File.Exists(this.back_save_fname))
-            File.Copy(this.main_save_fname, this.back_save_fname);
+        if (!File.Exists(this.back_save_file_path))
+            File.Copy(this.main_save_file_path, this.back_save_file_path);
 
         act();
 
@@ -483,19 +483,19 @@ public abstract class SettingsContainer<TSelf, TData>
 
     private void IncrementalSave(String name, String value) => this.ActOnDisk(() =>
     {
-        File.AppendAllLines(this.main_save_fname, [$"{name}={value}"], SettingsEncoding);
-        File.AppendAllLines(this.back_save_fname, [$"{name}={value}"], SettingsEncoding);
+        File.AppendAllLines(this.main_save_file_path, [$"{name}={value}"], SettingsEncoding);
+        File.AppendAllLines(this.back_save_file_path, [$"{name}={value}"], SettingsEncoding);
     });
 
     private void IncrementalDelete(String name) => this.ActOnDisk(() =>
     {
-        File.AppendAllLines(this.main_save_fname, [$"{name}!="], SettingsEncoding);
-        File.AppendAllLines(this.back_save_fname, [$"{name}!="], SettingsEncoding);
+        File.AppendAllLines(this.main_save_file_path, [$"{name}!="], SettingsEncoding);
+        File.AppendAllLines(this.back_save_file_path, [$"{name}!="], SettingsEncoding);
     });
 
     private void FullResave() => this.ActOnDisk(() =>
     {
-        var sw = new StreamWriter(this.main_save_fname, false, SettingsEncoding);
+        var sw = new StreamWriter(this.main_save_file_path, false, SettingsEncoding);
 
         foreach (var token in field_tokens.Values)
         {
@@ -505,7 +505,7 @@ public abstract class SettingsContainer<TSelf, TData>
         }
 
         sw.Close();
-        File.Delete(this.back_save_fname);
+        File.Delete(this.back_save_file_path);
     });
 
     #endregion
@@ -520,12 +520,12 @@ public abstract class SettingsContainer<TSelf, TData>
     {
         using var disk_locker = new ObjectLocker(this.disk_lock);
         if (this.is_shut_down)
-            throw new InvalidOperationException($"{ClassName} stored at {this.main_save_fname} is already shut down");
+            throw new InvalidOperationException($"{ClassName} stored at {this.main_save_file_path} is already shut down");
         this.is_shut_down = true;
-        if (File.Exists(this.main_save_fname))
-            File.Delete(this.main_save_fname);
-        if (File.Exists(this.back_save_fname))
-            File.Delete(this.back_save_fname);
+        if (File.Exists(this.main_save_file_path))
+            File.Delete(this.main_save_file_path);
+        if (File.Exists(this.back_save_file_path))
+            File.Delete(this.back_save_file_path);
     }
 
     /// <summary>
@@ -535,7 +535,7 @@ public abstract class SettingsContainer<TSelf, TData>
         if (this.is_shut_down)
             return;
 
-        Prompt.Notify("Settings not shut down", $"{ClassName}\n{this.main_save_fname}\n\nMake sure to call .Shutdown() before deleting an object with settings");
+        Prompt.Notify("Settings not shut down", $"{ClassName}\n{this.main_save_file_path}\n\nMake sure to call .Shutdown() before deleting an object with settings");
         this.Shutdown();
     }
 
