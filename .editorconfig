@@ -24,5 +24,8 @@ dotnet_style_qualification_for_method = true:suggestion
 dotnet_sort_system_directives_first = true
 dotnet_separate_import_directive_groups = true
 
+# namespace declaration
+csharp_style_namespace_declarations = file_scoped:suggestion
+
 # case with {}
 csharp_indent_case_contents_when_block = false

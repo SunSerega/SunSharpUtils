@@ -106,6 +106,7 @@ public sealed class DelayedUpdater
     private sealed class ActivationHolder
     {
         private DelayedUpdateSpec? requested;
+        private readonly Lock l_requested = new();
 
         public Boolean IsRequested => this.requested.HasValue;
 
@@ -113,13 +114,13 @@ public sealed class DelayedUpdater
 
         public void Clear()
         {
-            using var this_locker = new ObjectLocker(this);
+            using var lock_scope = this.l_requested.EnterScope();
             this.requested = null;
         }
 
         public Boolean TryUpdate(DelayedUpdateSpec next)
         {
-            using var this_locker = new ObjectLocker(this);
+            using var lock_scope = this.l_requested.EnterScope();
             var need_ev_set = true;
             if (this.requested.HasValue)
             {

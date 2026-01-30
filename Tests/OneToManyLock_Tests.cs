@@ -26,7 +26,7 @@ public class OneToManyLock_Tests
         var one_rep_c = 10;
         var many_rep_c = 1000;
 
-        var counter_lock = new Object();
+        var l_counters = new Lock();
         var one_counter = 0;
         var many_counter = 0;
 
@@ -44,10 +44,10 @@ public class OneToManyLock_Tests
                 {
                     l.OneLocked(() =>
                     {
-                        lock (counter_lock)
+                        lock (l_counters)
                             one_counter++;
                         Thread.Sleep(100);
-                        lock (counter_lock)
+                        lock (l_counters)
                             one_counter--;
                     }, one_priority);
                     Interlocked.Increment(ref done_one);
@@ -69,10 +69,10 @@ public class OneToManyLock_Tests
                 {
                     l.ManyLocked(() =>
                     {
-                        lock (counter_lock)
+                        lock (l_counters)
                             many_counter++;
                         Thread.Sleep(10);
-                        lock (counter_lock)
+                        lock (l_counters)
                             many_counter--;
                     });
                     Interlocked.Increment(ref done_many);
@@ -147,7 +147,7 @@ public class OneToManyLock_Tests
             if (threads.Count == 0)
                 break;
 
-            using var counter_locker = new ObjectLocker(counter_lock);
+            using var lock_scope = l_counters.EnterScope();
             if (one_counter!=0 && many_counter!=0)
                 throw new InvalidOperationException($"one_counter={one_counter} many_counter={many_counter}");
             if (one_counter>1)

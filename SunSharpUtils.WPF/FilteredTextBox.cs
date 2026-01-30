@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -16,7 +17,7 @@ public class FilteredTextBox<T> : ContentControl
     private readonly Action invalid_enter;
 
     private readonly TextBox tb = new();
-    private String uncommited_text = "";
+    private String uncommitted_text = "";
 
     private static readonly Brush b_unedited = Brushes.Transparent;
     private static readonly Brush b_valid = Brushes.YellowGreen;
@@ -24,7 +25,7 @@ public class FilteredTextBox<T> : ContentControl
 
     /// <summary>
     /// </summary>
-    public delegate Boolean FilterFunc(String text, out T value);
+    public delegate Boolean FilterFunc(String text, [NotNullWhen(true)] out T? value);
 
     /// <summary>
     /// </summary>
@@ -38,9 +39,14 @@ public class FilteredTextBox<T> : ContentControl
         this.invalid_enter = invalid_enter;
         this.Content = this.tb;
 
+        this.GotKeyboardFocus += (o, e) => Err.Handle(() =>
+        {
+            Keyboard.Focus(this.tb);
+        });
+
         this.tb.TextChanged += (o, e) => Err.Handle(() =>
         {
-            this.Edited = this.tb.Text != this.uncommited_text;
+            this.Edited = this.tb.Text != this.uncommitted_text;
             if (!this.Edited)
                 this.tb.Background = b_unedited;
             else if (filter(this.tb.Text, out _))
@@ -52,9 +58,9 @@ public class FilteredTextBox<T> : ContentControl
         this.tb.KeyDown += (o, e) => Err.Handle(() =>
         {
             if (e.Key != Key.Escape) return;
-            if (this.tb.Text == this.uncommited_text) return;
+            if (this.tb.Text == this.uncommitted_text) return;
             var (sel_s, sel_l) = (this.tb.SelectionStart, this.tb.SelectionLength);
-            this.ResetContent(this.uncommited_text);
+            this.ResetContent(this.uncommitted_text);
             (this.tb.SelectionStart, this.tb.SelectionLength) = (sel_s, sel_l);
             e.Handled = true;
         });
@@ -78,7 +84,7 @@ public class FilteredTextBox<T> : ContentControl
 
     /// <summary>
     /// </summary>
-    public event Action? Commited = null;
+    public event Action? Committed = null;
 
     /// <summary>
     /// </summary>
@@ -91,9 +97,10 @@ public class FilteredTextBox<T> : ContentControl
     public void ResetContent(String content)
     {
         this.tb.Text = content;
+        this.tb.Select(content.Length, 0);
         this.tb.Background = Brushes.Transparent;
         this.Edited = false;
-        this.uncommited_text = content;
+        this.uncommitted_text = content;
     }
 
     /// <summary>
@@ -114,7 +121,7 @@ public class FilteredTextBox<T> : ContentControl
         this.ResetContent(this.tb.Text);
 
         // Need this event to make sure outside code can reference this textbox in handler (unlike in the valid_enter action)
-        Commited?.Invoke();
+        Committed?.Invoke();
 
         return true;
     }

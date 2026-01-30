@@ -5,6 +5,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 
 using SunSharpUtils.Ext.Linq;
 using SunSharpUtils.Threading;
@@ -105,6 +106,9 @@ public abstract class SettingsContainer<TSelf, TData>
     /// </summary>
     protected delegate void FieldUpgradeAction(ref FieldUpgradeContext ctx);
     private static readonly Dictionary<String, FieldUpgradeAction> upgrade_actions = [];
+    //TODO This cannot be called in static constructor of derived class, its run after the static constructor of SettingsContainer
+    // - I should provide a way to register upgrade actions in a more reasonable way
+    // - Tho this is a legacy system already, maybe I don't really need this
     /// <summary>
     /// When field token is not found, this action is called with the saved value or null if the last value was set to default
     /// </summary>
@@ -466,11 +470,12 @@ public abstract class SettingsContainer<TSelf, TData>
 
     #region Save
 
-    private readonly Object disk_lock = new();
+    private readonly Lock disk_lock = new();
 
     private void ActOnDisk(Action act)
     {
-        using var disk_locker = new ObjectLocker(this.disk_lock);
+        using var lock_scope = this.disk_lock.EnterScope();
+
         if (this.is_shut_down) return;
 
         if (!File.Exists(this.back_save_file_path))
@@ -478,7 +483,7 @@ public abstract class SettingsContainer<TSelf, TData>
 
         act();
 
-        // Locker disposed
+        // Scope disposed
     }
 
     private void IncrementalSave(String name, String value) => this.ActOnDisk(() =>
@@ -518,7 +523,7 @@ public abstract class SettingsContainer<TSelf, TData>
     /// <exception cref="InvalidOperationException">If called more than once</exception>
     public void Shutdown()
     {
-        using var disk_locker = new ObjectLocker(this.disk_lock);
+        using var lock_scope = this.disk_lock.EnterScope();
         if (this.is_shut_down)
             throw new InvalidOperationException($"{ClassName} stored at {this.main_save_file_path} is already shut down");
         this.is_shut_down = true;

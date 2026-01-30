@@ -34,6 +34,7 @@ public sealed class DelayedRestarter<TKey>
     }
 
     private readonly ManualResetEventSlim ev = new(false);
+    private readonly Lock l_restartables = new();
     private readonly List<KeyData> restartables = [];
 
     /// <summary>
@@ -50,60 +51,50 @@ public sealed class DelayedRestarter<TKey>
         Action<TKey> update,
         Action<TKey> on_fall_behind,
         ManualResetEventSlim ev,
+        Lock l_restartables,
         List<KeyData> restartables
     ) => () =>
     {
         while (true)
             try
             {
-                ObjectLocker? locker = new ObjectLocker(restartables);
-                void Unlock()
+                using var lock_scope = l_restartables.EnterScope();
+
+                if (restartables.Count == 0)
                 {
-                    locker?.Dispose();
-                    locker = null;
+                    lock_scope.Dispose();
+                    ev.Wait();
+                    ev.Reset();
+                    continue;
                 }
-                try
+
+                var data = restartables.MinBy(data => data.NextStart ?? DateTime.MinValue);
+                if (data is null)
+                    continue;
+
                 {
-                    if (restartables.Count == 0)
+                    var wait = data.RemainingWait;
+                    if (wait > TimeSpan.Zero)
                     {
-                        Unlock();
-                        ev.Wait();
+                        lock_scope.Dispose();
+                        var was_set = ev.Wait(wait);
                         ev.Reset();
-                        continue;
+                        if (was_set)
+                            continue;
                     }
-
-                    var data = restartables.MinBy(data => data.NextStart ?? DateTime.MinValue);
-                    if (data is null)
-                        continue;
-
-                    {
-                        var wait = data.RemainingWait;
-                        if (wait > TimeSpan.Zero)
-                        {
-                            Unlock();
-                            var was_set = ev.Wait(wait);
-                            ev.Reset();
-                            if (was_set)
-                                continue;
-                        }
-                    }
-                    Unlock();
-
-                    data.LastStart += data.RestartDelay;
-                    data.LastStart ??= DateTime.Now;
-                    var min_last_start = DateTime.Now - data.RestartDelay*FallBehindMeasure;
-                    if (data.LastStart < min_last_start)
-                    {
-                        on_fall_behind.Invoke(data.Key);
-                        data.LastStart = min_last_start;
-                    }
-
-                    ThreadingCommon.RunWithBackgroundReset(() => update(data.Key), is_background);
                 }
-                finally
+                lock_scope.Dispose();
+
+                data.LastStart += data.RestartDelay;
+                data.LastStart ??= DateTime.Now;
+                var min_last_start = DateTime.Now - data.RestartDelay*FallBehindMeasure;
+                if (data.LastStart < min_last_start)
                 {
-                    locker?.Dispose();
+                    on_fall_behind.Invoke(data.Key);
+                    data.LastStart = min_last_start;
                 }
+
+                ThreadingCommon.RunWithBackgroundReset(() => update(data.Key), is_background);
             }
             catch when (Common.IsShuttingDown)
             {
@@ -122,7 +113,7 @@ public sealed class DelayedRestarter<TKey>
     /// <param name="is_background">If false, the app can't be shut down in the middle of executing update</param>
     public DelayedRestarter(Action<TKey> update, Action<TKey> on_fall_behind, String description, Boolean is_background)
     {
-        var thr = new Thread(MakeThreadStart(is_background, update, on_fall_behind, this.ev, this.restartables))
+        var thr = new Thread(MakeThreadStart(is_background, update, on_fall_behind, this.ev, this.l_restartables, this.restartables))
         {
             IsBackground = true,
             Name = $"{ClassName}: {description}",
@@ -143,7 +134,7 @@ public sealed class DelayedRestarter<TKey>
     /// </summary>
     public void Add(TKey key, TimeSpan restart_delay)
     {
-        using var locker = new ObjectLocker(this.restartables);
+        using var lock_scope = this.l_restartables.EnterScope();
         if (this.FindInd(key) is not null)
             throw new InvalidOperationException($"Key {key} has already been added");
         this.restartables.Add(new(key, restart_delay));
@@ -154,7 +145,7 @@ public sealed class DelayedRestarter<TKey>
     /// </summary>
     public void Update(TKey key, TimeSpan restart_delay)
     {
-        using var locker = new ObjectLocker(this.restartables);
+        using var lock_scope = this.l_restartables.EnterScope();
         var ind = this.FindInd(key) ?? throw new InvalidOperationException($"Key {key} not found");
         this.restartables[ind].RestartDelay = restart_delay;
         this.ev.Set();
@@ -164,7 +155,7 @@ public sealed class DelayedRestarter<TKey>
     /// </summary>
     public void Remove(TKey key)
     {
-        using var locker = new ObjectLocker(this.restartables);
+        using var lock_scope = this.l_restartables.EnterScope();
         var ind = this.FindInd(key) ?? throw new InvalidOperationException($"Key {key} not found");
         this.restartables.RemoveAt(ind);
         this.ev.Set();
