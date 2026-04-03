@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SunSharpUtils.Settings", "S
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tests", "Tests\Tests.csproj", "{AB01E68F-D548-46E9-810E-8FBF2AB68DD6}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SunSharpUtils.WinSvc", "SunSharpUtils.WinSvc\SunSharpUtils.WinSvc.csproj", "{44EC2E14-15B6-42B5-B415-742B4599A074}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -47,6 +49,10 @@ Global
 		{AB01E68F-D548-46E9-810E-8FBF2AB68DD6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AB01E68F-D548-46E9-810E-8FBF2AB68DD6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AB01E68F-D548-46E9-810E-8FBF2AB68DD6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{44EC2E14-15B6-42B5-B415-742B4599A074}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{44EC2E14-15B6-42B5-B415-742B4599A074}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{44EC2E14-15B6-42B5-B415-742B4599A074}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{44EC2E14-15B6-42B5-B415-742B4599A074}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

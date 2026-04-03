@@ -5,10 +5,10 @@ namespace SunSharpUtils;
 /// <summary>
 /// Type of exception that should be handled by only displaying a message to the user
 /// </summary>
-public sealed class MessageException : Exception
+/// <remarks>
+/// </remarks>
+public sealed class MessageException(String message) : Exception(message)
 {
-    internal MessageException(String message) : base(message) { }
-
     /// <summary>
     /// </summary>
     public override String ToString() => this.Message;
