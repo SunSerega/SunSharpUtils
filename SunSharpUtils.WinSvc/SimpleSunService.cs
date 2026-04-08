@@ -38,8 +38,15 @@ public abstract class SimpleSunService : ServiceBase
     /// </summary>
     protected sealed override void OnStop()
     {
-        Prompt.Notify("Service stop requested");
-        this.cts_svc_running.Cancel();
+        try
+        {
+            Prompt.Notify("Service stop requested");
+            this.cts_svc_running.Cancel();
+        }
+        catch (Exception ex)
+        {
+            WinSvcCommon.HandleCriticalError(ex, "trying to stop the svc");
+        }
     }
 
     internal Boolean StartCalled { get; private set; } = false;

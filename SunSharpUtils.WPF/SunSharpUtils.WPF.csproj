@@ -5,6 +5,7 @@
 	</PropertyGroup>
 	
 	<ItemGroup>
+		<ProjectReference Include="..\SunSharpUtils.WinSvc\SunSharpUtils.WinSvc.csproj" />
 		<ProjectReference Include="..\SunSharpUtils\SunSharpUtils.csproj" />
 	</ItemGroup>
 	

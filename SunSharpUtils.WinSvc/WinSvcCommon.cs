@@ -2,7 +2,10 @@
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using System.ServiceProcess;
+using System.Threading;
 
 using SunSharpUtils.Ext.Linq;
 
@@ -22,12 +25,12 @@ public static class WinSvcCommon
 
         Err.Init(new()
         {
-            Handle = ex => FileLog.Log(FileLog.MessageType.ERROR, $"{ex}"),
+            Handle = GlobalLog.AddError,
         });
 
         Prompt.Init(new()
         {
-            Notify = (title, msg) => FileLog.Log(FileLog.MessageType.MESSG, $"{new[] { title, msg }.Where(x => x is not null).JoinToString(": ")}"),
+            Notify = (title, msg) => GlobalLog.AddMessage(new[] { title, msg }.Where(x => x is not null).JoinToString(": ")),
             AskYesNo = (title, msg) => throw new InvalidOperationException(),
             AskAny = (title, msg, def) => throw new InvalidOperationException(),
         });
@@ -37,7 +40,7 @@ public static class WinSvcCommon
         Prompt.Notify($"==================================================");
         Prompt.Notify($"Command line: {Environment.CommandLine}");
         Prompt.Notify($"==================================================");
-        FileLog.FlushAll();
+        GlobalLog.FlushAll();
 
         try
         {
@@ -53,12 +56,59 @@ public static class WinSvcCommon
         }
         catch (Exception ex)
         {
-            Err.Handle(ex);
-            Err.Handle($"Critical error starting {svc}, exiting");
-            FileLog.FlushAll();
-            Environment.Exit(-1);
+            HandleCriticalError(ex, when_doing: $"starting {svc}");
         }
 
+    }
+
+    /// <summary>
+    /// Starts listening for socket connections on all local IPs with given port
+    /// </summary>
+    public static void StartSocketListener(Int32 port, Action<Socket> on_client, Int32 client_queue_size = 100)
+    {
+        foreach (var ip in Dns.GetHostEntry(Dns.GetHostName()).AddressList.Append(IPAddress.Loopback))
+        {
+            var ep = new IPEndPoint(ip, port);
+            Prompt.Notify($"Will listen for clients at {ep}");
+            var client_accept_thread = new Thread(ClientAcceptLoop)
+            {
+                IsBackground = true,
+                Name = $"Client listener at {ep}",
+            };
+            client_accept_thread.Start();
+            void ClientAcceptLoop()
+            {
+                try
+                {
+                    var listener = new Socket(SocketType.Stream, ProtocolType.Tcp);
+                    listener.Bind(ep);
+                    listener.Listen(client_queue_size);
+                    while (true)
+                        try
+                        {
+                            var client_socket = listener.Accept();
+                            client_socket.ReceiveTimeout = 60*1000;
+                            client_socket.SendTimeout = 1000;
+
+                            var thr = new Thread(() => on_client(client_socket))
+                            {
+                                IsBackground = true,
+                                Name = $"Client connected to {ep} from {client_socket.RemoteEndPoint}",
+                            };
+                            thr.Start();
+                        }
+                        catch (Exception ex)
+                        {
+                            Err.Handle($"Error accepting client at {ep}");
+                            Err.Handle(ex);
+                        }
+                }
+                catch (Exception ex)
+                {
+                    HandleCriticalError(ex, when_doing: $"accepting clients at {ep}");
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -70,7 +120,7 @@ public static class WinSvcCommon
     {
         Err.Handle(ex);
         Err.Handle($"Critical error {when_doing}, exiting");
-        FileLog.FlushAll();
+        GlobalLog.FlushAll();
         Environment.Exit(-1);
     }
 
