@@ -3,4 +3,8 @@
 	<PropertyGroup>
 	</PropertyGroup>
 	
+	<ItemGroup>
+		<ProjectReference Include="..\SunSharpUtils\SunSharpUtils.csproj" />
+	</ItemGroup>
+	
 </Project>

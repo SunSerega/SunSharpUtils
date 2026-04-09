@@ -4,6 +4,8 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 
+using SunSharpUtils.Ext.Linq;
+
 namespace SunSharpUtils.Bin;
 
 /// <summary>
@@ -36,12 +38,12 @@ public static class BinExt
             ).Compile();
 
             var p_read_br = Expression.Parameter(typeof(BinaryReader), "br");
-            var mi_read = typeof(BinaryReader).GetMethods(BindingFlags.Instance | BindingFlags.Public)
-                .Where(mi => mi.ReturnType == int_type)
-                .Where(mi => mi.GetParameters().Length == 0)
-                .Where(mi => mi.Name.StartsWith("Read"))
-                .SingleOrDefault()
-                ?? throw new InvalidOperationException($"Couldn't find {nameof(BinaryReader)}.Read* method returning {int_type}");
+            var mi_read_name = "Read"+int_type.Name;
+            var mi_read = typeof(BinaryReader).GetMethod(
+                mi_read_name,
+                BindingFlags.Instance | BindingFlags.Public,
+                []
+            ) ?? throw new InvalidOperationException($"Couldn't find {nameof(BinaryReader)}.{mi_read_name} method");
             read = Expression.Lambda<Func<BinaryReader, T>>(
                 Expression.Convert(Expression.Call(p_read_br, mi_read), typeof(T)),
                 parameters: [p_read_br]
