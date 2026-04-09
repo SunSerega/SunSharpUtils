@@ -23,6 +23,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tests", "Tests\Tests.csproj
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SunSharpUtils.WinSvc", "SunSharpUtils.WinSvc\SunSharpUtils.WinSvc.csproj", "{44EC2E14-15B6-42B5-B415-742B4599A074}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SunSharpUtils.Bin", "SunSharpUtils.Bin\SunSharpUtils.Bin.csproj", "{F0559073-AA4F-4C12-AF1B-6A931D134C62}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -53,6 +55,10 @@ Global
 		{44EC2E14-15B6-42B5-B415-742B4599A074}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{44EC2E14-15B6-42B5-B415-742B4599A074}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{44EC2E14-15B6-42B5-B415-742B4599A074}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F0559073-AA4F-4C12-AF1B-6A931D134C62}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F0559073-AA4F-4C12-AF1B-6A931D134C62}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F0559073-AA4F-4C12-AF1B-6A931D134C62}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F0559073-AA4F-4C12-AF1B-6A931D134C62}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
