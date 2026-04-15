@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 
-namespace SunSharpUtils.WinSvc;
+namespace SunSharpUtils.Logs;
 
 /// <summary>
 /// WinSvc global log file

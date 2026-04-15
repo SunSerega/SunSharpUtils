@@ -7,7 +7,7 @@ using System.Threading;
 
 using SunSharpUtils.Threading;
 
-namespace SunSharpUtils.WinSvc;
+namespace SunSharpUtils.Logs;
 
 /// <summary>
 /// </summary>

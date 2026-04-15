@@ -8,6 +8,7 @@ using System.ServiceProcess;
 using System.Threading;
 
 using SunSharpUtils.Ext.Linq;
+using SunSharpUtils.Logs;
 
 namespace SunSharpUtils.WinSvc;
 

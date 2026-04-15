@@ -8,6 +8,7 @@
     </ItemGroup>
     
     <ItemGroup>
+        <ProjectReference Include="..\SunSharpUtils.Logs\SunSharpUtils.Logs.csproj" />
         <ProjectReference Include="..\SunSharpUtils.Threading\SunSharpUtils.Threading.csproj" />
         <ProjectReference Include="..\SunSharpUtils\SunSharpUtils.csproj" />
     </ItemGroup>
