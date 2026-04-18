@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.IO;
 using System.IO.Compression;
 using System.Text;
@@ -17,7 +16,20 @@ public sealed class FileLogWithRotation : IDisposable
     private readonly Int64 max_log_size;
     private readonly Int32 max_rotated_files_count;
     private readonly Int32 rotated_index_len;
+
     private readonly CancellationTokenSource cts_log_existence = new();
+    private readonly ProcessingQueue<LogMessage> msg_queue = [];
+    private readonly Thread thr_msg_queue_processing;
+    private readonly ManualResetEventSlim ev_all_msg_written = new(initialState: false);
+
+    /// <summary>
+    /// Full file path of this log file without file extension
+    /// </summary>
+    public String FilePathWithoutExt => this.file_path_without_ext;
+    /// <summary>
+    /// Full file path of this log file
+    /// </summary>
+    public String FilePathWithExt => this.file_path_without_ext + ".log";
 
     /// <summary>
     /// </summary>
@@ -33,44 +45,11 @@ public sealed class FileLogWithRotation : IDisposable
         this.max_rotated_files_count = max_rotated_files_count;
         this.rotated_index_len = max_rotated_files_count.ToString().Length;
 
-        var thr = new Thread(this.WriteLoop)
+        this.thr_msg_queue_processing = this.msg_queue.StartProcessingThread(new()
         {
-            IsBackground = true,
-            Name = $"{nameof(FileLogWithRotation)} Thread: {this.file_path_without_ext}",
-        };
-        thr.Start();
-
-    }
-
-    /// <summary>
-    /// Full file path of this log file without file extension
-    /// </summary>
-    public String FilePathWithoutExt => this.file_path_without_ext;
-    /// <summary>
-    /// Full file path of this log file
-    /// </summary>
-    public String FilePathWithExt => this.file_path_without_ext + ".log";
-
-    private readonly ConcurrentQueue<LogMessage> msg_queue = [];
-    private readonly ManualResetEventSlim wh_new_msg = new(initialState: false);
-    private readonly ManualResetEventSlim wh_all_msg_written = new(initialState: false);
-
-    private void WriteLoop()
-    {
-        var log_dir = "Logs";
-        Directory.CreateDirectory(log_dir);
-        var file_path_with_ext = this.file_path_without_ext + ".log";
-
-        while (true)
-            try
+            UsedFor = $"{nameof(FileLogWithRotation)}: {this.file_path_without_ext}",
+            OnNewItems = new_messages =>
             {
-                if (this.msg_queue.IsEmpty)
-                {
-                    this.wh_new_msg.Wait();
-                    this.wh_new_msg.Reset();
-                    continue;
-                }
-
                 ThreadingCommon.RunWithBackgroundReset(() =>
                 {
 
@@ -120,7 +99,7 @@ public sealed class FileLogWithRotation : IDisposable
                     }
 
                     using var writer = new StreamWriter(this.FilePathWithExt, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-                    while (this.msg_queue.TryDequeue(out var msg))
+                    foreach (var msg in new_messages)
                     {
                         if (msg.Text is null)
                         {
@@ -135,13 +114,11 @@ public sealed class FileLogWithRotation : IDisposable
                             writer.WriteLine($"[{msg.Time:yyyy-MM-dd HH:mm:ss}] [{msg.Type}] {line}");
                     }
 
-                    this.wh_all_msg_written.Set();
+                    this.ev_all_msg_written.Set();
                 }, new_is_background: false);
-            }
-            catch (Exception ex)
-            {
-                Err.Handle(ex);
-            }
+            },
+            CancelToken = this.cts_log_existence.Token,
+        });
     }
 
     /// <summary>
@@ -168,11 +145,8 @@ public sealed class FileLogWithRotation : IDisposable
 
     /// <summary>
     /// </summary>
-    public void EnqueueMessage(MessageType msg_type, String? msg)
-    {
+    public void EnqueueMessage(MessageType msg_type, String? msg) =>
         this.msg_queue.Enqueue(new(DateTime.Now, msg_type, msg));
-        this.wh_new_msg.Set();
-    }
 
     private record struct LogMessage(DateTime Time, MessageType Type, String? Text);
 
@@ -181,9 +155,9 @@ public sealed class FileLogWithRotation : IDisposable
     /// </summary>
     public void FlushAll()
     {
-        this.wh_all_msg_written.Reset();
+        this.ev_all_msg_written.Reset();
         this.EnqueueMessage(MessageType.FLUSH, null);
-        this.wh_all_msg_written.Wait();
+        this.ev_all_msg_written.Wait();
     }
 
     /// <summary>
@@ -197,6 +171,7 @@ public sealed class FileLogWithRotation : IDisposable
     public void Dispose()
     {
         this.cts_log_existence.Cancel();
+        this.thr_msg_queue_processing.Join();
         GC.SuppressFinalize(this);
     }
 

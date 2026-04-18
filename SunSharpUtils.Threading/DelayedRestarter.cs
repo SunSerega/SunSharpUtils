@@ -15,7 +15,7 @@ namespace SunSharpUtils.Threading;
 public sealed class DelayedRestarter<TKey>
     where TKey : notnull
 {
-    private static String ClassName => $"{nameof(DelayedRestarter<TKey>)}<{typeof(TKey)}>";
+    private static String ClassName => $"{nameof(DelayedRestarter<>)}<{typeof(TKey)}>";
 
     private sealed class KeyHolder(TKey key)
     {

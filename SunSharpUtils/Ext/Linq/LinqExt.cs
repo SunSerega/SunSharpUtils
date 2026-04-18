@@ -55,6 +55,14 @@ public static class LinqExt
 
     /// <summary>
     /// </summary>
+    public static Stack<T> ToStack<T>(this IEnumerable<T> seq) => new(seq);
+
+    /// <summary>
+    /// </summary>
+    public static Queue<T> ToQueue<T>(this IEnumerable<T> seq) => new(seq);
+
+    /// <summary>
+    /// </summary>
     public static T2[] ToArray<T1, T2>(this IReadOnlyCollection<T1> coll, Converter<T1, T2> conv)
     {
         var res = new T2[coll.Count];
@@ -75,6 +83,17 @@ public static class LinqExt
         var keys = arr.ToArray(sort_by);
         Array.Sort(keys, arr);
         return arr;
+    }
+
+    /// <summary>
+    /// </summary>
+    public static (T[] is_false, T[] is_true) SplitArray<T>(this T[] arr, Predicate<T> condition)
+    {
+        var if_false = new List<T>(arr.Length);
+        var if_true = new List<T>(arr.Length);
+        foreach (var item in arr)
+            (condition(item) ? if_true : if_false).Add(item);
+        return (if_false.ToArray(), if_true.ToArray());
     }
 
     /// <summary>

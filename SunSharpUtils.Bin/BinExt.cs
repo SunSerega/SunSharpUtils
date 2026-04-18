@@ -120,7 +120,7 @@ public static class BinExt
 
     /// <summary>
     /// </summary>
-    public static void Write2<T>(this BinaryWriter bw, (T,T) val, Action<BinaryWriter, T> write_val)
+    public static void Write2<T>(this BinaryWriter bw, (T, T) val, Action<BinaryWriter, T> write_val)
     {
         write_val(bw, val.Item1);
         write_val(bw, val.Item2);
@@ -128,7 +128,7 @@ public static class BinExt
 
     /// <summary>
     /// </summary>
-    public static (T,T) Read2<T>(this BinaryReader br, Func<BinaryReader, T> read_val)
+    public static (T, T) Read2<T>(this BinaryReader br, Func<BinaryReader, T> read_val)
     {
         var val1 = read_val(br);
         var val2 = read_val(br);
