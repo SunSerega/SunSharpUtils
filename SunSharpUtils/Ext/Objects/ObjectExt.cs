@@ -15,12 +15,16 @@ public static class ObjectExt
     /// <param name="obj"></param>
     /// <param name="get_next"></param>
     /// <returns></returns>
-    public static IEnumerable<T> Iterate<T>(this T obj, Func<T, T> get_next)
+    public static IEnumerable<T> IterateWhileNotNull<T>(this T obj, Func<T, T?> get_next)
+        where T : class
     {
         while (true)
         {
             yield return obj;
-            obj = get_next(obj);
+            var next = get_next(obj);
+            if (next is null)
+                break;
+            obj = next;
         }
     }
 
