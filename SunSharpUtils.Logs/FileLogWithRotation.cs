@@ -50,72 +50,70 @@ public sealed class FileLogWithRotation : IDisposable
             UsedFor = $"{nameof(FileLogWithRotation)}: {this.file_path_without_ext}",
             OnNewItems = new_messages =>
             {
-                ThreadingCommon.RunWithBackgroundReset(() =>
+                using var thread_is_background_resetter = ThreadingCommon.TempSetIsBackground(new_is_background: false);
+
+                Err.Handle(RotateLogsIfNeeded);
+                void RotateLogsIfNeeded()
                 {
+                    var log_fi = new FileInfo(this.FilePathWithExt);
+                    if (!log_fi.Exists || log_fi.Length <= this.max_log_size)
+                        return;
+                    String RotatedLogPath(Int32 index) =>
+                        $"{this.file_path_without_ext}.{index.ToString().PadLeft(this.rotated_index_len, '0')}.zip";
 
-                    Err.Handle(RotateLogsIfNeeded);
-                    void RotateLogsIfNeeded()
+                    var need_move_count = 0;
+                    for (var i = 1; i <= this.max_rotated_files_count - 1; i++)
                     {
-                        var log_fi = new FileInfo(this.FilePathWithExt);
-                        if (!log_fi.Exists || log_fi.Length <= this.max_log_size)
-                            return;
-                        String RotatedLogPath(Int32 index) =>
-                            $"{this.file_path_without_ext}.{index.ToString().PadLeft(this.rotated_index_len, '0')}.zip";
-
-                        var need_move_count = 0;
-                        for (var i = 1; i <= this.max_rotated_files_count - 1; i++)
-                        {
-                            var src_path = RotatedLogPath(i);
-                            if (!File.Exists(src_path))
-                                break;
-                            need_move_count = i;
-                        }
-
-                        if (need_move_count == this.max_rotated_files_count-1)
-                        {
-                            var last_rotated_path = RotatedLogPath(this.max_rotated_files_count);
-                            if (File.Exists(last_rotated_path))
-                                File.Delete(last_rotated_path);
-                        }
-
-                        for (var i = need_move_count; i >= 1; i--)
-                        {
-                            var src_path = RotatedLogPath(i);
-                            var dst_path = RotatedLogPath(i+1);
-                            File.Move(src_path, dst_path, overwrite: false);
-                        }
-
-                        {
-                            var dst_path = RotatedLogPath(1);
-                            using var zip_stream = File.Create(dst_path);
-                            using var zip_archive = new ZipArchive(zip_stream, ZipArchiveMode.Create);
-                            var zip_entry = zip_archive.CreateEntry(Path.GetFileName(this.FilePathWithExt), CompressionLevel.Optimal);
-                            using var entry_stream = zip_entry.Open();
-                            using var log_file_stream = File.OpenRead(this.FilePathWithExt);
-                            log_file_stream.CopyTo(entry_stream);
-                        }
-                        File.Delete(this.FilePathWithExt);
-
+                        var src_path = RotatedLogPath(i);
+                        if (!File.Exists(src_path))
+                            break;
+                        need_move_count = i;
                     }
 
-                    using var writer = new StreamWriter(this.FilePathWithExt, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-                    foreach (var msg in new_messages)
+                    if (need_move_count == this.max_rotated_files_count-1)
                     {
-                        if (msg.Text is null)
-                        {
-                            if (msg.Type is not MessageType.FLUSH)
-                                throw new InvalidOperationException($"{msg.Type} message had null text");
-                            continue;
-                        }
-                        if (msg.Type is MessageType.FLUSH)
-                            throw new InvalidOperationException($"{MessageType.FLUSH} message had text: {msg.Text}");
-                        var lines = msg.Text.Split(["\r\n", "\n", "\r"], StringSplitOptions.None);
-                        foreach (var line in lines)
-                            writer.WriteLine($"[{msg.Time:yyyy-MM-dd HH:mm:ss}] [{msg.Type}] {line}");
+                        var last_rotated_path = RotatedLogPath(this.max_rotated_files_count);
+                        if (File.Exists(last_rotated_path))
+                            File.Delete(last_rotated_path);
                     }
 
-                    this.ev_all_msg_written.Set();
-                }, new_is_background: false);
+                    for (var i = need_move_count; i >= 1; i--)
+                    {
+                        var src_path = RotatedLogPath(i);
+                        var dst_path = RotatedLogPath(i+1);
+                        File.Move(src_path, dst_path, overwrite: false);
+                    }
+
+                    {
+                        var dst_path = RotatedLogPath(1);
+                        using var zip_stream = File.Create(dst_path);
+                        using var zip_archive = new ZipArchive(zip_stream, ZipArchiveMode.Create);
+                        var zip_entry = zip_archive.CreateEntry(Path.GetFileName(this.FilePathWithExt), CompressionLevel.Optimal);
+                        using var entry_stream = zip_entry.Open();
+                        using var log_file_stream = File.OpenRead(this.FilePathWithExt);
+                        log_file_stream.CopyTo(entry_stream);
+                    }
+                    File.Delete(this.FilePathWithExt);
+
+                }
+
+                using var writer = new StreamWriter(this.FilePathWithExt, append: true, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+                foreach (var msg in new_messages)
+                {
+                    if (msg.Text is null)
+                    {
+                        if (msg.Type is not MessageType.FLUSH)
+                            throw new InvalidOperationException($"{msg.Type} message had null text");
+                        continue;
+                    }
+                    if (msg.Type is MessageType.FLUSH)
+                        throw new InvalidOperationException($"{MessageType.FLUSH} message had text: {msg.Text}");
+                    var lines = msg.Text.Split(["\r\n", "\n", "\r"], StringSplitOptions.None);
+                    foreach (var line in lines)
+                        writer.WriteLine($"[{msg.Time:yyyy-MM-dd HH:mm:ss}] [{msg.Type}] {line}");
+                }
+
+                this.ev_all_msg_written.Set();
             },
             CancelToken = this.cts_log_existence.Token,
         });

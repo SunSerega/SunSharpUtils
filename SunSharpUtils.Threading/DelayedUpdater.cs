@@ -79,7 +79,8 @@ public sealed class DelayedUpdater
 
                 activation.Clear();
 
-                ThreadingCommon.RunWithBackgroundReset(update, is_background);
+                using var thread_is_background_resetter = ThreadingCommon.TempSetIsBackground(is_background);
+                update();
             }
             catch when (Common.IsShuttingDown)
             {

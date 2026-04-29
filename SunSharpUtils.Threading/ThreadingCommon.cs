@@ -30,22 +30,27 @@ public static class ThreadingCommon
     }
 
     /// <summary>
-    /// Runs an action with the background flag set to the specified value, then resets it to the original value
+    /// Sets the thread's IsBackground property to the specified value
     /// </summary>
-    /// <param name="act"></param>
     /// <param name="new_is_background"></param>
-    public static void RunWithBackgroundReset(Action act, Boolean new_is_background)
+    /// <returns>A disposable that resets the thread's IsBackground property to its original value</returns>
+    public static IDisposable TempSetIsBackground(Boolean new_is_background)
     {
-        var is_background = Thread.CurrentThread.IsBackground;
+        var old_is_background = Thread.CurrentThread.IsBackground;
         Thread.CurrentThread.IsBackground = new_is_background;
-        try
-        {
-            act();
-        }
-        finally
-        {
-            Thread.CurrentThread.IsBackground = is_background;
-        }
+        return new LambdaDisposable(() => Thread.CurrentThread.IsBackground = old_is_background);
+    }
+
+    /// <summary>
+    /// Sets the thread's Name property to the specified value
+    /// </summary>
+    /// <param name="new_name"></param>
+    /// <returns>A disposable that resets the thread's Name property to its original value</returns>
+    public static IDisposable TempSetName(String new_name)
+    {
+        var old_name = Thread.CurrentThread.Name;
+        Thread.CurrentThread.Name = new_name;
+        return new LambdaDisposable(() => Thread.CurrentThread.Name = old_name);
     }
 
     /// <summary>

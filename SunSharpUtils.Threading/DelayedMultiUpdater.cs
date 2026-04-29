@@ -51,7 +51,8 @@ public sealed class DelayedMultiUpdater<TKey>
                 if (!updatables.TryRemove(kvp))
                     continue;
 
-                ThreadingCommon.RunWithBackgroundReset(() => update(kvp.Key), is_background);
+                using var thread_is_background_resetter = ThreadingCommon.TempSetIsBackground(is_background);
+                update(kvp.Key);
             }
             catch when (Common.IsShuttingDown)
             {

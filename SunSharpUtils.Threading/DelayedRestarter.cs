@@ -94,7 +94,8 @@ public sealed class DelayedRestarter<TKey>
                     data.LastStart = min_last_start;
                 }
 
-                ThreadingCommon.RunWithBackgroundReset(() => update(data.Key), is_background);
+                using var thread_is_background_resetter = ThreadingCommon.TempSetIsBackground(is_background);
+                update(data.Key);
             }
             catch when (Common.IsShuttingDown)
             {
