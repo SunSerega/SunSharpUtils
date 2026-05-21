@@ -1,10 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 
-namespace SunSharpUtils.Ext.Common;
+namespace SunSharpUtils.Ext.Math;
 
 /// <summary>
 /// </summary>
-public static class CommonExt
+public static class MathExt
 {
 
     /// <summary>
@@ -31,6 +32,20 @@ public static class CommonExt
     public static T Clamp<T>(this T val, T min, T max) where T : IComparable<T>
     {
         return val.ClampBottom(min).ClampTop(max);
+    }
+
+    /// <summary>
+    /// Compares using IComparable
+    /// </summary>
+    public static Boolean InRange<T>(this T x, T a, T b)
+        where T : IComparable<T>
+    {
+        var cmp = Comparer<T>.Default;
+        if (cmp.Compare(x, a) < 0)
+            return false;
+        if (cmp.Compare(x, b) > 0)
+            return false;
+        return true;
     }
 
 }

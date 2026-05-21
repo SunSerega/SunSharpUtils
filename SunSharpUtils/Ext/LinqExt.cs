@@ -87,6 +87,26 @@ public static class LinqExt
 
     /// <summary>
     /// </summary>
+    public static T[] CombineArrays<T>(params Span<T[]> arrays)
+    {
+        var total_len = 0;
+        foreach (var arr in arrays)
+            total_len += arr.Length;
+        var res = new T[total_len];
+        var i = 0;
+        foreach (var arr in arrays)
+        {
+            Array.Copy(arr, 0, res, i, arr.Length);
+            i += arr.Length;
+        }
+        return res;
+    }
+    /// <summary>
+    /// </summary>
+    public static T[] CombineWith<T>(this T[] arr1, T[] arr2) => CombineArrays(arr1, arr2);
+
+    /// <summary>
+    /// </summary>
     public static (T[] is_false, T[] is_true) SplitArray<T>(this T[] arr, Predicate<T> condition)
     {
         var if_false = new List<T>(arr.Length);
