@@ -57,19 +57,41 @@ public static class WinSvcCommon
         }
         catch (Exception ex)
         {
-            HandleCriticalError(ex, when_doing: $"starting {svc}");
+            HandleCriticalError(ex, when_doing: $"starting {svc.ServiceName}");
         }
 
     }
 
     /// <summary>
+    /// </summary>
+    public readonly struct SocketListenerConfig()
+    {
+        /// <summary>
+        /// </summary>
+        public required Int32 Port { get; init; }
+        /// <summary>
+        /// Maximum time allowed without receiving data from client before receive fails
+        /// Default: 1 minute
+        /// </summary>
+        public TimeSpan ReceiveTimeout { get; init; } = TimeSpan.FromMinutes(1);
+        /// <summary>
+        /// Maximum time allowed to send data to client before send fails
+        /// Default: 1 second
+        /// </summary>
+        public TimeSpan SendTimeout { get; init; } = TimeSpan.FromSeconds(1);
+        /// <summary>
+        /// Handler that would be launched in a new thread for each new client
+        /// </summary>
+        public required Action<Socket> OnClient { get; init; }
+    }
+    /// <summary>
     /// Starts listening for socket connections on all local IPs with given port
     /// </summary>
-    public static void StartSocketListener(Int32 port, Action<Socket> on_client, Int32 client_queue_size = 100)
+    public static void StartSocketListener(SocketListenerConfig config)
     {
         foreach (var ip in Dns.GetHostEntry(Dns.GetHostName()).AddressList.Append(IPAddress.Loopback))
         {
-            var ep = new IPEndPoint(ip, port);
+            var ep = new IPEndPoint(ip, config.Port);
             Prompt.Notify($"Will listen for clients at {ep}");
             var client_accept_thread = new Thread(ClientAcceptLoop)
             {
@@ -83,18 +105,33 @@ public static class WinSvcCommon
                 {
                     var listener = new Socket(SocketType.Stream, ProtocolType.Tcp);
                     listener.Bind(ep);
-                    listener.Listen(client_queue_size);
+                    listener.Listen(backlog: 100); // Shouldn't matter since we are launching a new thread for each client and don't wait
                     while (true)
                         try
                         {
                             var client_socket = listener.Accept();
-                            client_socket.ReceiveTimeout = 60*1000;
-                            client_socket.SendTimeout = 1000;
+                            var remote_ep = client_socket.RemoteEndPoint;
 
-                            var thr = new Thread(() => on_client(client_socket))
+                            // -1 if Timeout.InfiniteTimeSpan
+                            client_socket.ReceiveTimeout = (Int32)config.ReceiveTimeout.TotalMilliseconds;
+                            client_socket.SendTimeout = (Int32)config.SendTimeout.TotalMilliseconds;
+
+                            var thr = new Thread(() =>
+                            {
+                                try
+                                {
+                                    config.OnClient(client_socket);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Err.Handle($"Error handling client connected to {ep} from {remote_ep}");
+                                    Err.Handle(ex);
+                                    Err.Handle(client_socket.Close);
+                                }
+                            })
                             {
                                 IsBackground = true,
-                                Name = $"Client connected to {ep} from {client_socket.RemoteEndPoint}",
+                                Name = $"Client connected to {ep} from {remote_ep}",
                             };
                             thr.Start();
                         }
