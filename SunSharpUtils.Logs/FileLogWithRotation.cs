@@ -110,7 +110,7 @@ public sealed class FileLogWithRotation : IDisposable
                         throw new InvalidOperationException($"{MessageType.FLUSH} message had text: {msg.Text}");
                     var lines = msg.Text.Split(["\r\n", "\n", "\r"], StringSplitOptions.None);
                     foreach (var line in lines)
-                        writer.WriteLine($"[{msg.Time:yyyy-MM-dd HH:mm:ss}] [{msg.Type}] {line}");
+                        writer.WriteLine($"[{msg.Time:yyyy-MM-dd HH:mm:ss.fffff}] [{msg.Type}] {line}");
                 }
 
                 this.ev_all_msg_written.Set();

@@ -1,11 +1,14 @@
 
 
 
+/install sharp common.ps1
+
 /.vs/
 
 */bin/
 */obj/
 
 *.csproj.user
+**/Properties/launchSettings.json
 
 

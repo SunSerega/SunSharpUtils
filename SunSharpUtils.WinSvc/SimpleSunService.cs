@@ -50,7 +50,12 @@ public abstract class SimpleSunService : ServiceBase
     }
 
     internal Boolean StartCalled { get; private set; } = false;
-    internal void DebugStart() =>
+    internal void DebugStart()
+    {
         this.OnStart(Environment.GetCommandLineArgs());
+
+        while (!this.cts_svc_running.IsCancellationRequested)
+            Thread.Sleep(1000);
+    }
 
 }

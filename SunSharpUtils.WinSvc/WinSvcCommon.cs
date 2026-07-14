@@ -52,8 +52,7 @@ public static class WinSvcCommon
                 return;
 
             Debugger.Launch();
-            if (Debugger.IsAttached)
-                svc.DebugStart();
+            svc.DebugStart();
         }
         catch (Exception ex)
         {

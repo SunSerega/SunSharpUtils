@@ -150,9 +150,8 @@ public static class BinExt
 
     /// <summary>
     /// </summary>
-    public static T[] ReadArray<T>(this BinaryReader br, Func<BinaryReader, T> read_item)
+    public static T[] ReadArray<T>(this BinaryReader br, Int32 length, Func<BinaryReader, T> read_item)
     {
-        var length = br.ReadInt32();
         var items = new T[length];
         for (Int32 i = 0; i < length; i++)
             items[i] = read_item(br);
@@ -160,10 +159,15 @@ public static class BinExt
     }
 
     /// <summary>
+    /// Also reads the length as Int32 prefix
+    /// </summary>
+    public static T[] ReadArray<T>(this BinaryReader br, Func<BinaryReader, T> read_item) =>
+        br.ReadArray(br.ReadInt32(), read_item);
+
+    /// <summary>
     /// </summary>
     public static Action<BinaryWriter, T[]> Array<T>(Action<BinaryWriter, T> write_item) =>
         (bw, a) => bw.WriteArray(a, write_item);
-
 
     /// <summary>
     /// </summary>
