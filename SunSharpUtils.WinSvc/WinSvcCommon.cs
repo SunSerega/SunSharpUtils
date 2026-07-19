@@ -21,22 +21,21 @@ public static class WinSvcCommon
     /// <summary>
     /// Initializes
     /// </summary>
-    public static void Init(SimpleSunService svc)
+    public static void Init(SimpleSunService svc, Prompt.DelegateStore? prompt_init = null)
     {
+        Environment.CurrentDirectory = Path.GetDirectoryName(Environment.ProcessPath) ?? throw new InvalidOperationException();
 
         Err.Init(new()
         {
             Handle = GlobalLog.AddError,
         });
 
-        Prompt.Init(new()
+        Prompt.Init(prompt_init ?? new()
         {
             Notify = (title, msg) => GlobalLog.AddMessage(new[] { title, msg }.Where(x => x is not null).JoinToString(": ")),
             AskYesNo = (title, msg) => throw new InvalidOperationException(),
             AskAny = (title, msg, def) => throw new InvalidOperationException(),
         });
-
-        Environment.CurrentDirectory = Path.GetDirectoryName(Environment.ProcessPath) ?? throw new InvalidOperationException();
 
         Prompt.Notify($"==================================================");
         Prompt.Notify($"Command line: {Environment.CommandLine}");

@@ -26,12 +26,19 @@ namespace SunSharpUtils.Settings;
 public sealed class SettingsLoadUserAbortedException() : Exception() { }
 
 /// <summary>
+/// </summary>
+public abstract class SettingsContainerBase
+{
+
+}
+
+/// <summary>
 /// Saves and loads settings of arbitrary structure to and from text files
 /// Provides incremental saving and loading and maintains a backup file
 /// </summary>
 /// <typeparam name="TSelf"></typeparam>
 /// <typeparam name="TData"></typeparam>
-public abstract class SettingsContainer<TSelf, TData>
+public abstract class SettingsContainer<TSelf, TData> : SettingsContainerBase
     where TSelf : SettingsContainer<TSelf, TData>
     where TData : struct
 {
@@ -130,7 +137,7 @@ public abstract class SettingsContainer<TSelf, TData>
                 if (value is null)
                     token.SetDefault(ref res);
                 else
-                    token.Deserialize(ref res, value);
+                    token.Deserialize(ref res, value, ref need_resave);
             }
             else if (upgrade_actions.TryGetValue(key, out var action))
             {
@@ -220,17 +227,17 @@ public abstract class SettingsContainer<TSelf, TData>
     /// <summary>
     /// Deploys settings for the specified path
     /// </summary>
-    /// <param name="path">Full file path without extension for settings to store their data</param>
+    /// <param name="file_path_wo_ext">Full file path without extension for settings to store their data</param>
     /// <param name="save_all">If true, all fields will be saved, even if they have default value</param>
     /// <exception cref="SettingsLoadUserAbortedException"></exception>
-    protected SettingsContainer(String path, Boolean save_all)
+    protected SettingsContainer(String file_path_wo_ext, Boolean save_all)
     {
         CheckTokenInitStatus();
 
-        path = Path.GetFullPath(path);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        this.main_save_file_path = $"{path}.dat";
-        this.back_save_file_path = $"{path}-Backup.dat";
+        file_path_wo_ext = Path.GetFullPath(file_path_wo_ext);
+        Directory.CreateDirectory(Path.GetDirectoryName(file_path_wo_ext)!);
+        this.main_save_file_path = $"{file_path_wo_ext}.dat";
+        this.back_save_file_path = $"{file_path_wo_ext}-Backup.dat";
 
         this.save_all = save_all;
 
@@ -238,7 +245,7 @@ public abstract class SettingsContainer<TSelf, TData>
         {
             if (File.Exists(this.back_save_file_path))
             {
-                if (!Prompt.AskYesNo("Settings inconsistency", $"Backup file exists, but main settings file is missing:\n{path}\n\nSimply load backup?"))
+                if (!Prompt.AskYesNo("Settings inconsistency", $"Backup file exists, but main settings file is missing:\n{file_path_wo_ext}\n\nSimply load backup?"))
                     throw new SettingsLoadUserAbortedException();
                 this.data = LoadData(this.back_save_file_path, save_all, out _);
                 this.FullResave();
@@ -247,6 +254,8 @@ public abstract class SettingsContainer<TSelf, TData>
             {
                 this.data = default_data;
                 File.Create(this.main_save_file_path).Close();
+                if (save_all && field_tokens.Count != 0)
+                    this.FullResave();
             }
             return;
         }
@@ -270,7 +279,7 @@ public abstract class SettingsContainer<TSelf, TData>
             var title = "Settings inconsistency";
 
             var content_sb = new StringBuilder();
-            content_sb.AppendLine($"Settings at [{path}] have mismatch of {token.Name} field between main and backup files");
+            content_sb.AppendLine($"Settings at [{file_path_wo_ext}] have mismatch of {token.Name} field between main and backup files");
             content_sb.AppendLine();
             content_sb.Append("Main file");
             if (token.IsDefault(ref main_data))
@@ -328,15 +337,16 @@ public abstract class SettingsContainer<TSelf, TData>
         internal abstract void Copy(ref TData from, ref TData to);
 
         internal abstract String Serialize(ref TData res);
-        internal abstract void Deserialize(ref TData res, String v);
+        internal abstract void Deserialize(ref TData res, String v, ref Boolean need_resave);
 
     }
 
     /// <summary>
     /// </summary>
     protected class FieldToken<TField> : FieldTokenBase
-        where TField : IEquatable<TField>?
     {
+        private static readonly EqualityComparer<TField> eq_comp = EqualityComparer<TField>.Default;
+
         private delegate TField DGetter(ref TData data);
         private delegate void DSetter(ref TData data, TField value);
 
@@ -378,9 +388,6 @@ public abstract class SettingsContainer<TSelf, TData>
             this.setter(ref default_data, def_val);
         }
 
-        private static Boolean Equals(TField a, TField b) =>
-            a is null ? b is null : a.Equals(b);
-
         /// <summary>
         /// </summary>
         public TField Get(ref TData data) => this.getter(ref data);
@@ -391,7 +398,7 @@ public abstract class SettingsContainer<TSelf, TData>
         /// <returns>true if value was updated</returns>
         public Boolean Set(ref TData data, TField value)
         {
-            if (Equals(value, this.Get(ref data)))
+            if (eq_comp.Equals(value, this.Get(ref data)))
                 return false;
             this.setter(ref data, value);
             return true;
@@ -407,36 +414,32 @@ public abstract class SettingsContainer<TSelf, TData>
         {
             if (!this.Set(ref container.data, value))
                 return;
-            if (Equals(value, this.def_val))
+            if (eq_comp.Equals(value, this.def_val))
                 container.IncrementalDelete(this.name);
             else
                 container.IncrementalSave(this.name, this.saver.Serialize(value));
             delayed_resave.Trigger(container, DelayedUpdateSpec.FromDelay(earliest_delay: ResaveDelay, urgent_delay: ResaveMaxDelay));
         }
 
-        internal override Boolean IsDefault(ref TData data) => Equals(this.getter(ref data), this.def_val);
+        internal override Boolean IsDefault(ref TData data) => eq_comp.Equals(this.getter(ref data), this.def_val);
         internal override void SetDefault(ref TData res) => this.setter(ref res, this.def_val);
 
-        internal override Boolean IsEqual(ref TData data1, ref TData data2) => Equals(this.getter(ref data1), this.getter(ref data2));
+        internal override Boolean IsEqual(ref TData data1, ref TData data2) => eq_comp.Equals(this.getter(ref data1), this.getter(ref data2));
         internal override void Copy(ref TData from, ref TData to) => this.setter(ref to, this.getter(ref from));
 
         internal override String Serialize(ref TData res) => this.saver.Serialize(this.getter(ref res));
-        internal override void Deserialize(ref TData res, String v) => this.setter(ref res, this.saver.Deserialize(v));
+        internal override void Deserialize(ref TData res, String s, ref Boolean need_resave)
+        {
+            var v = this.saver.Deserialize(s);
+            this.setter(ref res, v);
+            var s2 = this.saver.Serialize(v);
+            if (s != s2)
+                need_resave = true;
+        }
 
     }
 
-    /// <summary>
-    /// Defines a field token derived from a field getter expression
-    /// </summary>
-    /// <typeparam name="TField"></typeparam>
-    /// <param name="field_getter"></param>
-    /// <param name="def_val"></param>
-    /// <param name="saver"></param>
-    /// <returns></returns>
-    /// <exception cref="InvalidOperationException">If no saver is specified</exception>
-    /// <exception cref="ArgumentException">If expression has the wrong format</exception>
-    protected static FieldToken<TField> MakeFieldToken<TField>(Expression<Func<TData, TField>> field_getter, TField def_val, SettingsFieldSaver<TField>? saver = null)
-        where TField : IEquatable<TField>?
+    private static FieldToken<TField> MakeFieldTokenImpl<TField>(Expression<Func<TData, TField>> field_getter, TField def_val, SettingsFieldSaver<TField>? saver = null)
     {
         saver ??= SettingsFieldSaver<TField>.DefaultOrThrow;
 
@@ -463,8 +466,33 @@ public abstract class SettingsContainer<TSelf, TData>
             return field;
             static void ThrowFormat(String explanation) => throw new ArgumentException($"Expression must be in the form data=>data.field: {explanation}");
         }
-
     }
+
+    /// <summary>
+    /// Defines a field token derived from a field getter expression
+    /// </summary>
+    /// <typeparam name="TField"></typeparam>
+    /// <param name="field_getter"></param>
+    /// <param name="def_val"></param>
+    /// <param name="saver"></param>
+    /// <returns></returns>
+    /// <exception cref="InvalidOperationException">If no saver is specified and no default is defined</exception>
+    /// <exception cref="ArgumentException">If expression has the wrong format</exception>
+    protected static FieldToken<TField> MakeFieldToken<TField>(Expression<Func<TData, TField>> field_getter, TField def_val, SettingsFieldSaver<TField>? saver = null)
+        where TField : IEquatable<TField>? => MakeFieldTokenImpl(field_getter, def_val, saver);
+
+    /// <summary>
+    /// Defines a field token derived from a field getter expression
+    /// </summary>
+    /// <typeparam name="TField"></typeparam>
+    /// <param name="field_getter"></param>
+    /// <param name="def_val"></param>
+    /// <param name="saver"></param>
+    /// <returns></returns>
+    /// <exception cref="InvalidOperationException">If no saver is specified and no default is defined</exception>
+    /// <exception cref="ArgumentException">If expression has the wrong format</exception>
+    protected static FieldToken<TField?> MakeFieldToken<TField>(Expression<Func<TData, TField?>> field_getter, TField? def_val, SettingsFieldSaver<TField?>? saver = null)
+        where TField : struct, IEquatable<TField> => MakeFieldTokenImpl(field_getter, def_val, saver);
 
     #endregion
 

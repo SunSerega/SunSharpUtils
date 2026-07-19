@@ -11,6 +11,20 @@ public static class LinqExt
 
     /// <summary>
     /// </summary>
+    public static Int32 CountOf<T>(this IEnumerable<T> seq, T target, EqualityComparer<T>? comparer = null)
+    {
+        comparer ??= EqualityComparer<T>.Default;
+        var count = 0;
+        foreach (var item in seq)
+        {
+            if (comparer.Equals(item, target))
+                count++;
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// </summary>
     public static Boolean SequenceEqual<T>(this IEnumerable<T> seq1, IEnumerable<T> seq2, EqualityComparer<T>? comparer = null)
     {
         comparer ??= EqualityComparer<T>.Default;
@@ -87,7 +101,7 @@ public static class LinqExt
 
     /// <summary>
     /// </summary>
-    public static T[] CombineArrays<T>(params Span<T[]> arrays)
+    public static T[] CombineArrays<T>(this Span<T[]> arrays)
     {
         var total_len = 0;
         foreach (var arr in arrays)
@@ -103,7 +117,7 @@ public static class LinqExt
     }
     /// <summary>
     /// </summary>
-    public static T[] CombineWith<T>(this T[] arr1, T[] arr2) => CombineArrays(arr1, arr2);
+    public static T[] CombineWith<T>(this T[] arr1, T[] arr2) => CombineArrays([arr1, arr2]);
 
     /// <summary>
     /// </summary>

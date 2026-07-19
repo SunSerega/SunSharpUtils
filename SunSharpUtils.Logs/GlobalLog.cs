@@ -29,6 +29,12 @@ public static class GlobalLog
         global_file_log.EnqueueMessage(FileLogWithRotation.MessageType.ERROR, $"{ex}");
 
     /// <summary>
+    /// Calls AddError with a new MessageException
+    /// </summary>
+    /// <param name="err"></param>
+    public static void AddError(String err) => AddError(new MessageException(err));
+
+    /// <summary>
     /// Waits for all messages to be written to the file
     /// </summary>
     public static void FlushAll() =>

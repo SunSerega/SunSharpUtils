@@ -54,13 +54,13 @@ public static class ThreadingCommon
     }
 
     /// <summary>
-    /// Locks the object and runs the get function, returning its result
+    /// Runs the function under this lock, returning its result
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <param name="l"></param>
     /// <param name="get"></param>
     /// <returns></returns>
-    public static T LockedGet<T>(this Object l, Func<T> get)
+    public static T LockedGet<T>(this Lock l, Func<T> get)
     {
         lock (l)
             return get();

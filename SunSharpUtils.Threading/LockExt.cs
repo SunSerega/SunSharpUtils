@@ -1,5 +1,5 @@
 ﻿using System;
-
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 
 namespace SunSharpUtils.Threading;
@@ -11,11 +11,25 @@ public static class LockExt
 {
 
     /// <summary>
-    /// Tries to lock, and returns null if already locked by another thread
+    /// Enters a lock and returns a nullable scope object
     /// </summary>
     /// <param name="l"></param>
     /// <returns></returns>
-    public static LockScopeObject? TryEnterScope(this Lock l)
+    [return: NotNull]
+    public static LockScope? EnterNScope(this Lock l)
+    {
+        l.Enter();
+        return new(l);
+    }
+
+    /// <summary>
+    /// Tries to lock
+    /// - If locked, returns a nullable scope object
+    /// - Otherwise, returns null, meaning already locked by another thread
+    /// </summary>
+    /// <param name="l"></param>
+    /// <returns></returns>
+    public static LockScope? TryEnterNScope(this Lock l)
     {
         if (!l.TryEnter())
             return null;
@@ -26,7 +40,7 @@ public static class LockExt
     /// IDisposable struct, which holds a lock on an object
     /// </summary>
     /// <param name="l"></param>
-    public struct LockScopeObject(Lock l) : IDisposable
+    public struct LockScope(Lock l) : IDisposable
     {
         private Lock? l = l;
 
