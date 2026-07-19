@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq.Expressions;
 using System.Reflection;
 
-namespace SunSharpUtils.Bin;
+namespace SunSharpUtils.Ext.Bin;
 
 /// <summary>
 /// </summary>

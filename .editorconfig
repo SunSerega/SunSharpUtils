@@ -29,3 +29,14 @@ csharp_style_namespace_declarations = file_scoped:suggestion
 
 # case with {}
 csharp_indent_case_contents_when_block = false
+
+# interfaces must start with 'I'
+dotnet_naming_rule.interface_should_be_begins_with_i.severity = warning
+
+# enums must start with 'E'
+dotnet_naming_symbols.enums.applicable_kinds = enum
+dotnet_naming_style.enum_prefix.required_prefix = E
+dotnet_naming_style.enum_prefix.capitalization = pascal_case
+dotnet_naming_rule.enums_should_start_with_e.symbols = enums
+dotnet_naming_rule.enums_should_start_with_e.style = enum_prefix
+dotnet_naming_rule.enums_should_start_with_e.severity = warning
