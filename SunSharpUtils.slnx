@@ -1,0 +1,15 @@
+<Solution>
+    <Folder Name="/0 Solution Items/">
+        <File Path=".gitignore" />
+        <File Path="Directory.Build.props" />
+        <File Path="ProjectPublish.ps1" />
+    </Folder>
+    <Project Path="SunSharpUtils.Ext/SunSharpUtils.Ext.csproj" />
+    <Project Path="SunSharpUtils.Logs/SunSharpUtils.Logs.csproj" />
+    <Project Path="SunSharpUtils.Settings/SunSharpUtils.Settings.csproj" />
+    <Project Path="SunSharpUtils.Threading/SunSharpUtils.Threading.csproj" />
+    <Project Path="SunSharpUtils.WinSvc/SunSharpUtils.WinSvc.csproj" />
+    <Project Path="SunSharpUtils.WPF/SunSharpUtils.WPF.csproj" />
+    <Project Path="SunSharpUtils/SunSharpUtils.csproj" />
+    <Project Path="Tests/Tests.csproj" />
+</Solution>
