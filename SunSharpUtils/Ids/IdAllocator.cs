@@ -9,10 +9,24 @@ using System.Threading;
 namespace SunSharpUtils.Ids;
 
 /// <summary>
+/// </summary>
+public readonly struct IdOffsetOfOne
+{
+    /// <summary>
+    /// </summary>
+    public static implicit operator IdOffsetOfOne(SByte value)
+    {
+        if (value != 1)
+            throw new InvalidOperationException($"IdOffsetOfOne can only be 1");
+        return new IdOffsetOfOne();
+    }
+}
+
+/// <summary>
 /// Represents ID for IdAllocator
 /// </summary>
 /// <typeparam name="TSelf"></typeparam>
-public interface IAllocatableId<TSelf> : IEqualityOperators<TSelf, TSelf, Boolean>, IAdditionOperators<TSelf, UInt32, TSelf>, ISubtractionOperators<TSelf, UInt32, TSelf>, IMinMaxValue<TSelf>
+public interface IAllocatableId<TSelf> : IEqualityOperators<TSelf, TSelf, Boolean>, IAdditionOperators<TSelf, IdOffsetOfOne, TSelf>, ISubtractionOperators<TSelf, IdOffsetOfOne, TSelf>, IMinMaxValue<TSelf>
     where TSelf : struct, IAllocatableId<TSelf>
 {
     /// <summary>
