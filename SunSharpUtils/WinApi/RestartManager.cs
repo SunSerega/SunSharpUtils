@@ -10,7 +10,7 @@ using System.Runtime.InteropServices;
 // I lost the original motivation for this class, but it can be generally useful
 // - The Report function is a meme as is, should be adapted (rewritten) to next use case
 
-namespace SunSharpUtils.RestartManager;
+namespace SunSharpUtils.WinApi;
 
 using static RestartManagerApi;
 
@@ -22,7 +22,6 @@ using static RestartManagerApi;
 /// Uses WinAPI to unlock files used by other processes
 /// </summary>
 public static class RestartManager
-#pragma warning restore IDE0079 // Remove unnecessary suppression
 {
 
     /// <summary>
