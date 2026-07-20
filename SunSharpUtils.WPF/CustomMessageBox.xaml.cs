@@ -45,7 +45,7 @@ public partial class CustomMessageBox : Window
         if (owner.Value?.IsVisible ?? false)
             this.Owner = owner.Value;
 
-        KeyDown += (o, e) => Err.Handle(() =>
+        KeyDown += (o, e) => Err.HandleDuring(() =>
         {
             if (e.Key == Key.Escape)
                 this.Close();
@@ -90,7 +90,7 @@ public partial class CustomMessageBox : Window
             {
                 Content = button_name,
             };
-            b.Click += (o, e) => Err.Handle(() =>
+            b.Click += (o, e) => Err.HandleDuring(() =>
             {
                 this.ChosenOption = button_name;
                 this.Close();
@@ -119,7 +119,7 @@ public partial class CustomMessageBox : Window
         if (System.Threading.Thread.CurrentThread.GetApartmentState() != System.Threading.ApartmentState.STA)
         {
             String? res = null;
-            var thr = new System.Threading.Thread(() => Err.Handle(() =>
+            var thr = new System.Threading.Thread(() => Err.HandleDuring(() =>
             {
                 res = Show(title, content, owner, button_names);
             }))

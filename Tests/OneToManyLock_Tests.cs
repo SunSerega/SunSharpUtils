@@ -54,7 +54,7 @@ public class OneToManyLock_Tests
                     Thread.Sleep(1000);
                 }
             }
-            threads.Add(new Thread(() => Err.Handle(one_thr))
+            threads.Add(new Thread(() => Err.HandleDuring(one_thr))
             {
                 Name=$"One thr [{i}]"
             });
@@ -79,7 +79,7 @@ public class OneToManyLock_Tests
                     //Thread.Sleep(1000);
                 }
             }
-            threads.Add(new Thread(() => Err.Handle(many_thr))
+            threads.Add(new Thread(() => Err.HandleDuring(many_thr))
             {
                 Name=$"Many thr [{i}]"
             });
@@ -88,7 +88,7 @@ public class OneToManyLock_Tests
         foreach (var thr in threads)
             thr.Start();
 
-        var win_thr = new Thread(() => Err.Handle(() =>
+        var win_thr = new Thread(() => Err.HandleDuring(() =>
         {
             static UIElement make_otp_line(String name, out TextBlock tb) => new Viewbox
             {

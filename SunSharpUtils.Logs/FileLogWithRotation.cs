@@ -52,7 +52,7 @@ public sealed class FileLogWithRotation : IDisposable
             {
                 using var thread_is_background_resetter = ThreadingCommon.TempSetIsBackground(new_is_background: false);
 
-                Err.Handle(RotateLogsIfNeeded);
+                Err.HandleDuring(RotateLogsIfNeeded);
                 void RotateLogsIfNeeded()
                 {
                     var log_fi = new FileInfo(this.FilePathWithExt);

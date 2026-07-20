@@ -1,9 +1,7 @@
 ﻿using System;
-
-using System.Numerics;
-
-using System.Linq;
 using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
 using System.Threading;
 
 namespace SunSharpUtils.Ids;
@@ -71,7 +69,7 @@ public readonly struct IdAllocator<T>
         var last_id = used_ids[0];
         if (last_id != T.MaxValue)
             this.unused.Add(new(last_id+1, T.MaxValue));
-        
+
         for (Int32 i = 1; i < used_ids.Length; i++)
         {
             var id = used_ids[i];

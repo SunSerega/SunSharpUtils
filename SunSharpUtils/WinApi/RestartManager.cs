@@ -61,7 +61,7 @@ public static class RestartManager
     {
         try
         {
-            RmStartSession_Wrap(out var session_handle, RmStartSessionFlags.None, out var sessionKey).ThrowIfFailed();
+            RmStartSession_Wrap(out var session_handle, ERmStartSessionFlags.None, out var sessionKey).ThrowIfFailed();
             Report($"Session Handle: {session_handle.Value}, Session Key: {sessionKey}");
             try
             {
@@ -74,7 +74,7 @@ public static class RestartManager
                     return;
                 }
 
-                var shutdown_result = RmShutdown(session_handle, RmShutdownFlags.Force, percent_complete => Report($"Unlocking: {percent_complete}%"));
+                var shutdown_result = RmShutdown(session_handle, ERmShutdownFlags.Force, percent_complete => Report($"Unlocking: {percent_complete}%"));
                 shutdown_result.ThrowIfFailed();
 
                 Int32 GetAndPrintHeldApps()
@@ -104,7 +104,7 @@ public static class RestartManager
 internal static class RestartManagerApi
 {
 
-    public static ERmResultCode RmStartSession_Wrap(out RmSessionHandle pSessionHandle, RmStartSessionFlags dwSessionFlags, out String strSessionKey)
+    public static ERmResultCode RmStartSession_Wrap(out RmSessionHandle pSessionHandle, ERmStartSessionFlags dwSessionFlags, out String strSessionKey)
     {
         const Int32 CCH_RM_SESSION_KEY = 32;
         var sessionKey_chars = new Char[CCH_RM_SESSION_KEY + 1];
@@ -113,7 +113,7 @@ internal static class RestartManagerApi
         return error;
     }
     [DllImport(@"rstrtmgr.dll", CharSet = CharSet.Unicode)]
-    private static extern ERmResultCode RmStartSession(out RmSessionHandle pSessionHandle, RmStartSessionFlags dwSessionFlags, Char[] strSessionKey);
+    private static extern ERmResultCode RmStartSession(out RmSessionHandle pSessionHandle, ERmStartSessionFlags dwSessionFlags, Char[] strSessionKey);
 
     [DllImport(@"rstrtmgr.dll", CharSet = CharSet.Unicode)]
     public static extern ERmResultCode RmEndSession(RmSessionHandle pSessionHandle);
@@ -141,7 +141,7 @@ internal static class RestartManagerApi
         String[]? rgsServiceNames
     );
 
-    public static ERmResultCode RmGetList_Wrap(RmSessionHandle session_handle, out RmProcessInfo[] affectedApps, out RmRebootReason rebootReasons)
+    public static ERmResultCode RmGetList_Wrap(RmSessionHandle session_handle, out RmProcessInfo[] affectedApps, out ERmRebootReason rebootReasons)
     {
 
         UInt32 apps_read = 0;
@@ -174,13 +174,13 @@ internal static class RestartManagerApi
         out UInt32 pnProcInfoNeeded,
         ref UInt32 pnProcInfo,
         [Out] RmProcessInfo[]? rgAffectedApps,
-        out RmRebootReason lpdwRebootReasons
+        out ERmRebootReason lpdwRebootReasons
     );
 
     [DllImport(@"rstrtmgr.dll", CharSet = CharSet.Unicode)]
     public static extern ERmResultCode RmShutdown(
         RmSessionHandle dwSessionHandle,
-        RmShutdownFlags lActionFlags,
+        ERmShutdownFlags lActionFlags,
         RmWriteStatusCallback? fnStatus
     );
 
@@ -213,7 +213,7 @@ internal static class RestartManagerApi
         throw new InvalidOperationException($"RM operation failed with code: {code}");
     }
 
-    public enum RmStartSessionFlags : UInt32
+    public enum ERmStartSessionFlags : UInt32
     {
         None = 0,
     }
@@ -229,8 +229,8 @@ internal static class RestartManagerApi
         public String strAppName;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = CCH_RM_MAX_SVC_NAME+1)]
         public String strServiceShortName;
-        public RmApplicationType ApplicationType;
-        public RmAppStatus AppStatus;
+        public ERmApplicationType ApplicationType;
+        public ERmAppStatus AppStatus;
         public UInt32 TSSessionId;
         [MarshalAs(UnmanagedType.Bool)]
         public Boolean bRestartable;
@@ -245,7 +245,7 @@ internal static class RestartManagerApi
         public DateTime PST => DateTime.FromFileTimeUtc(((Int64)this.ProcessStartTime.dwHighDateTime << 32) | (UInt32)this.ProcessStartTime.dwLowDateTime);
     }
 
-    public enum RmApplicationType : UInt32
+    public enum ERmApplicationType : UInt32
     {
         UnknownApp = 0,
         MainWindow = 1,
@@ -257,7 +257,7 @@ internal static class RestartManagerApi
     }
 
     [Flags]
-    public enum RmAppStatus : UInt32
+    public enum ERmAppStatus : UInt32
     {
         Unknown = 0x0,
         Running = 0x1,
@@ -271,7 +271,7 @@ internal static class RestartManagerApi
     }
 
     [Flags]
-    public enum RmRebootReason : UInt32
+    public enum ERmRebootReason : UInt32
     {
         None = 0,
         PermissionDenied = 0x1,
@@ -282,7 +282,7 @@ internal static class RestartManagerApi
     }
 
     [Flags]
-    public enum RmShutdownFlags : UInt32
+    public enum ERmShutdownFlags : UInt32
     {
         Force = 0x1,
         ShutdownOnlyRegistered = 0x10,

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace SunSharpUtils;
 
@@ -57,7 +58,7 @@ public static class Err
     /// Executes body action, using <see cref="Handle(Exception)"/> to handle any exception
     /// </summary>
     /// <param name="body"></param>
-    public static void Handle(Action body)
+    public static void HandleDuring(Action body)
     {
         try
         {
@@ -70,33 +71,50 @@ public static class Err
     }
 
     /// <summary>
-    /// Executes body func, using <see cref="Handle(Exception)"/> to handle any exception
-    /// </summary>
-    /// <typeparam name="T1"></typeparam>
-    /// <typeparam name="T2"></typeparam>
-    /// <param name="body"></param>
-    /// <param name="fallback"></param>
-    /// <returns>Either the return value of body func, or, in case of exception, value of <paramref name="fallback"/></returns>
-    public static T2 Handle<T1, T2>(Func<T1> body, T2 fallback)
-        where T1 : T2
-    {
-        try
-        {
-            return body();
-        }
-        catch (Exception e)
-        {
-            Handle(e);
-            return fallback;
-        }
-    }
-    /// <summary>
-    /// Executes body func, using <see cref="Handle(Exception)"/> to handle any exception
+    /// Tries to execute the body function and catches a specific exception type
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <param name="body"></param>
-    /// <returns>Either the return value of body func, or, in case of exception, default(<typeparamref name="T"/>)</returns>
-    public static T? Handle<T>(Func<T> body) =>
-        Handle(body, default(T));
+    /// <param name="result"></param>
+    /// <param name="exception"></param>
+    /// <param name="filter"></param>
+    /// <returns></returns>
+    public static Boolean TryCatch<T>(Func<T> body, [NotNullWhen(false)] out T? result, [NotNullWhen(true)] out Exception? exception, Predicate<Exception>? filter = null) where T : notnull =>
+        Err<Exception>.TryCatch(body, out result, out exception, filter);
+
+}
+
+/// <summary>
+/// Centralized error handling
+/// </summary>
+public static class Err<TException>
+    where TException : Exception
+{
+
+    /// <summary>
+    /// Tries to execute the body function and catches a specific exception type
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="body"></param>
+    /// <param name="result"></param>
+    /// <param name="exception"></param>
+    /// <param name="filter"></param>
+    /// <returns></returns>
+    public static Boolean TryCatch<T>(Func<T> body, [NotNullWhen(false)] out T? result, [NotNullWhen(true)] out TException? exception, Predicate<TException>? filter = null)
+        where T : notnull
+    {
+        try
+        {
+            result = body();
+            exception = default;
+            return false;
+        }
+        catch (TException e) when (filter?.Invoke(e) ?? true)
+        {
+            result = default;
+            exception = e;
+            return true;
+        }
+    }
 
 }

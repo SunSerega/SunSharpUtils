@@ -124,7 +124,7 @@ public static class WinSvcCommon
                                 {
                                     Err.Handle($"Error handling client connected to {ep} from {remote_ep}");
                                     Err.Handle(ex);
-                                    Err.Handle(client_socket.Close);
+                                    Err.HandleDuring(client_socket.Close);
                                 }
                             })
                             {

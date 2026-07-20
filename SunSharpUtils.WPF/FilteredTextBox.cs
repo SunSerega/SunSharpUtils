@@ -39,12 +39,12 @@ public class FilteredTextBox<T> : ContentControl
         this.invalid_enter = invalid_enter;
         this.Content = this.tb;
 
-        this.GotKeyboardFocus += (o, e) => Err.Handle(() =>
+        this.GotKeyboardFocus += (o, e) => Err.HandleDuring(() =>
         {
             Keyboard.Focus(this.tb);
         });
 
-        this.tb.TextChanged += (o, e) => Err.Handle(() =>
+        this.tb.TextChanged += (o, e) => Err.HandleDuring(() =>
         {
             this.Edited = this.tb.Text != this.uncommitted_text;
             if (!this.Edited)
@@ -55,7 +55,7 @@ public class FilteredTextBox<T> : ContentControl
                 this.tb.Background = b_invalid;
         });
 
-        this.tb.KeyDown += (o, e) => Err.Handle(() =>
+        this.tb.KeyDown += (o, e) => Err.HandleDuring(() =>
         {
             if (e.Key != Key.Escape) return;
             if (this.tb.Text == this.uncommitted_text) return;
@@ -65,7 +65,7 @@ public class FilteredTextBox<T> : ContentControl
             e.Handled = true;
         });
 
-        this.tb.KeyDown += (o, e) => Err.Handle(() =>
+        this.tb.KeyDown += (o, e) => Err.HandleDuring(() =>
         {
             if (e.Key != Key.Enter) return;
             this.TryCommit();
