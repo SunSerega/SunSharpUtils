@@ -8,9 +8,9 @@
         <Project Path="SunSharpUtils/SunSharpUtils.csproj" />
     </Folder>
     <Folder Name="/2 Ext/">
-        <Project Path="SunSharpUtils.Ext.Json/SunSharpUtils.Ext.Json.csproj" Id="65e92a0d-a60c-478c-a4c7-4454df678d19" />
-        <Project Path="SunSharpUtils.Ext.Universal/SunSharpUtils.Ext.Universal.csproj" Id="b1c3e615-af88-428f-9127-45fcacfec015" />
         <Project Path="SunSharpUtils.Ext/SunSharpUtils.Ext.csproj" />
+        <Project Path="SunSharpUtils.Ext.Json/SunSharpUtils.Ext.Json.csproj" Id="65e92a0d-a60c-478c-a4c7-4454df678d19" />
+        <Project Path="SunSharpUtils.Ext.UniversalBin/SunSharpUtils.Ext.UniversalBin.csproj" Id="b1c3e615-af88-428f-9127-45fcacfec015" />
     </Folder>
     <Folder Name="/3 Common/">
         <Project Path="SunSharpUtils.Logs/SunSharpUtils.Logs.csproj" />

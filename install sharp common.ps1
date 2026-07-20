@@ -19,10 +19,15 @@ try
 	
 	$files = Get-ChildItem -Path $source_dir -File
 	foreach ($file in $files) {
+		$target_file_path = "${target_dir}\$($file.Name)"
+		if ([IO.File]::Exists($target_file_path)) {
+			Remove-Item $target_file_path
+		}
+		
 		Write-Host @"
-		cmd /C mklink /H "${target_dir}\$($file.Name)" "$($file.FullName)"
+		cmd /C mklink /H "${target_file_path}" "$($file.FullName)"
 "@
-		cmd /C mklink /H "${target_dir}\$($file.Name)" "$($file.FullName)"
+		cmd /C mklink /H "${target_file_path}" "$($file.FullName)"
 		if (-not $?) {
 			throw "Failed to create hard link for file [${file.Name}]"
 		}

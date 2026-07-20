@@ -3,9 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Runtime.InteropServices;
 
-using SunSharpUtils;
-
-namespace Core.HistoryKeeper.Contracts.TempBinaryHelpers;
+namespace SunSharpUtils.Ext.UniversalBin;
 
 //TODO Get up to speed with StructSerializer in "vid list" solution and then split this file, so I have 1 per global type here
 
