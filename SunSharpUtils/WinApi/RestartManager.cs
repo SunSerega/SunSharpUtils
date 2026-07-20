@@ -104,7 +104,7 @@ public static class RestartManager
 internal static class RestartManagerApi
 {
 
-    public static RmResultCode RmStartSession_Wrap(out RmSessionHandle pSessionHandle, RmStartSessionFlags dwSessionFlags, out String strSessionKey)
+    public static ERmResultCode RmStartSession_Wrap(out RmSessionHandle pSessionHandle, RmStartSessionFlags dwSessionFlags, out String strSessionKey)
     {
         const Int32 CCH_RM_SESSION_KEY = 32;
         var sessionKey_chars = new Char[CCH_RM_SESSION_KEY + 1];
@@ -113,12 +113,12 @@ internal static class RestartManagerApi
         return error;
     }
     [DllImport(@"rstrtmgr.dll", CharSet = CharSet.Unicode)]
-    private static extern RmResultCode RmStartSession(out RmSessionHandle pSessionHandle, RmStartSessionFlags dwSessionFlags, Char[] strSessionKey);
+    private static extern ERmResultCode RmStartSession(out RmSessionHandle pSessionHandle, RmStartSessionFlags dwSessionFlags, Char[] strSessionKey);
 
     [DllImport(@"rstrtmgr.dll", CharSet = CharSet.Unicode)]
-    public static extern RmResultCode RmEndSession(RmSessionHandle pSessionHandle);
+    public static extern ERmResultCode RmEndSession(RmSessionHandle pSessionHandle);
 
-    public static RmResultCode RmRegisterResources_WrapFiles(RmSessionHandle session_handle, params String[] files)
+    public static ERmResultCode RmRegisterResources_WrapFiles(RmSessionHandle session_handle, params String[] files)
     {
         return RmRegisterResources(
             dwSessionHandle: session_handle,
@@ -131,7 +131,7 @@ internal static class RestartManagerApi
         );
     }
     [DllImport(@"rstrtmgr.dll", CharSet = CharSet.Unicode)]
-    private static extern RmResultCode RmRegisterResources(
+    private static extern ERmResultCode RmRegisterResources(
         RmSessionHandle dwSessionHandle,
         UInt32 nFiles,
         String[]? rgsFilenames,
@@ -141,16 +141,16 @@ internal static class RestartManagerApi
         String[]? rgsServiceNames
     );
 
-    public static RmResultCode RmGetList_Wrap(RmSessionHandle session_handle, out RmProcessInfo[] affectedApps, out RmRebootReason rebootReasons)
+    public static ERmResultCode RmGetList_Wrap(RmSessionHandle session_handle, out RmProcessInfo[] affectedApps, out RmRebootReason rebootReasons)
     {
 
         UInt32 apps_read = 0;
         var result_code = RmGetList(session_handle, out var apps_len, ref apps_read, null, out rebootReasons);
         var expect_data = false;
-        if (result_code is RmResultCode.MORE_DATA)
+        if (result_code is ERmResultCode.MORE_DATA)
         {
             expect_data = true;
-            result_code = RmResultCode.SUCCESS;
+            result_code = ERmResultCode.SUCCESS;
         }
         if (result_code.IsError())
         {
@@ -169,7 +169,7 @@ internal static class RestartManagerApi
         return result_code;
     }
     [DllImport(@"rstrtmgr.dll", CharSet = CharSet.Unicode)]
-    private static extern RmResultCode RmGetList(
+    private static extern ERmResultCode RmGetList(
         RmSessionHandle dwSessionHandle,
         out UInt32 pnProcInfoNeeded,
         ref UInt32 pnProcInfo,
@@ -178,7 +178,7 @@ internal static class RestartManagerApi
     );
 
     [DllImport(@"rstrtmgr.dll", CharSet = CharSet.Unicode)]
-    public static extern RmResultCode RmShutdown(
+    public static extern ERmResultCode RmShutdown(
         RmSessionHandle dwSessionHandle,
         RmShutdownFlags lActionFlags,
         RmWriteStatusCallback? fnStatus
@@ -189,7 +189,7 @@ internal static class RestartManagerApi
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     public record struct RmSessionHandle(UInt32 Value);
 
-    public enum RmResultCode : UInt32
+    public enum ERmResultCode : UInt32
     {
         SUCCESS = 0,
         ACCESS_DENIED = 5,
@@ -205,8 +205,8 @@ internal static class RestartManagerApi
         CANCELLED = 1223,
     }
 
-    public static Boolean IsError(this RmResultCode code) => code != RmResultCode.SUCCESS;
-    public static void ThrowIfFailed(this RmResultCode code)
+    public static Boolean IsError(this ERmResultCode code) => code != ERmResultCode.SUCCESS;
+    public static void ThrowIfFailed(this ERmResultCode code)
     {
         if (!code.IsError())
             return;
