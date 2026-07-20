@@ -21,11 +21,11 @@ public static class WinSvcCommon
     /// <summary>
     /// Initializes
     /// </summary>
-    public static void Init(SimpleSunService svc, Prompt.DelegateStore? prompt_init = null)
+    public static void Init(SimpleSunService svc, Err.DelegateStore? err_init = null, Prompt.DelegateStore? prompt_init = null)
     {
         Environment.CurrentDirectory = Path.GetDirectoryName(Environment.ProcessPath) ?? throw new InvalidOperationException();
 
-        Err.Init(new()
+        Err.Init(err_init ?? new()
         {
             Handle = GlobalLog.AddError,
         });
