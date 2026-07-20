@@ -1,18 +1,26 @@
-﻿<Solution>
+<Solution>
     <Folder Name="/0 Solution Items/">
         <File Path=".gitignore" />
         <File Path="Directory.Build.props" />
         <File Path="ProjectPublish.ps1" />
     </Folder>
-    <Folder Name="/1 Ext/">
+    <Folder Name="/1 Core/">
+        <Project Path="SunSharpUtils/SunSharpUtils.csproj" />
+    </Folder>
+    <Folder Name="/2 Ext/">
         <Project Path="SunSharpUtils.Ext.Json/SunSharpUtils.Ext.Json.csproj" Id="65e92a0d-a60c-478c-a4c7-4454df678d19" />
         <Project Path="SunSharpUtils.Ext/SunSharpUtils.Ext.csproj" />
     </Folder>
-    <Project Path="SunSharpUtils.Logs/SunSharpUtils.Logs.csproj" />
-    <Project Path="SunSharpUtils.Settings/SunSharpUtils.Settings.csproj" />
-    <Project Path="SunSharpUtils.Threading/SunSharpUtils.Threading.csproj" />
-    <Project Path="SunSharpUtils.WinSvc/SunSharpUtils.WinSvc.csproj" />
-    <Project Path="SunSharpUtils.WPF/SunSharpUtils.WPF.csproj" />
-    <Project Path="SunSharpUtils/SunSharpUtils.csproj" />
+    <Folder Name="/3 Common/">
+        <Project Path="SunSharpUtils.Logs/SunSharpUtils.Logs.csproj" />
+        <Project Path="SunSharpUtils.Settings/SunSharpUtils.Settings.csproj" />
+        <Project Path="SunSharpUtils.Threading/SunSharpUtils.Threading.csproj" />
+    </Folder>
+    <Folder Name="/4 Visual/">
+        <Project Path="SunSharpUtils.WPF/SunSharpUtils.WPF.csproj" />
+    </Folder>
+    <Folder Name="/5 Background/">
+        <Project Path="SunSharpUtils.WinSvc/SunSharpUtils.WinSvc.csproj" />
+    </Folder>
     <Project Path="Tests/Tests.csproj" />
 </Solution>
