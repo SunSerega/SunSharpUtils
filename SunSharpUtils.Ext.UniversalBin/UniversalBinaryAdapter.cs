@@ -63,7 +63,7 @@ public static class UniversalBinaryAdapter
 
         public static Boolean TryCreateForUnmanaged<T>([NotNullWhen(true)] out UniversalBinaryAdapter<T>? adapter)
         {
-            if (Err<ArgumentException>.TryCatch(() => typeof(UniversalBinaryAdapter.Unmanaged<>).MakeGenericType(typeof(T)), out var t, out var ex))
+            if (!Err<ArgumentException>.TryCatch(() => typeof(Unmanaged<>).MakeGenericType(typeof(T)), out var t, out var ex))
             {
                 adapter = null;
                 return false;

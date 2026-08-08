@@ -79,7 +79,7 @@ public static class Err
     /// <param name="exception"></param>
     /// <param name="filter"></param>
     /// <returns></returns>
-    public static Boolean TryCatch<T>(Func<T> body, [NotNullWhen(false)] out T? result, [NotNullWhen(true)] out Exception? exception, Predicate<Exception>? filter = null) where T : notnull =>
+    public static Boolean TryCatch<T>(Func<T> body, [NotNullWhen(true)] out T? result, [NotNullWhen(false)] out Exception? exception, Predicate<Exception>? filter = null) where T : notnull =>
         Err<Exception>.TryCatch(body, out result, out exception, filter);
 
 }
@@ -100,20 +100,20 @@ public static class Err<TException>
     /// <param name="exception"></param>
     /// <param name="filter"></param>
     /// <returns></returns>
-    public static Boolean TryCatch<T>(Func<T> body, [NotNullWhen(false)] out T? result, [NotNullWhen(true)] out TException? exception, Predicate<TException>? filter = null)
+    public static Boolean TryCatch<T>(Func<T> body, [NotNullWhen(true)] out T? result, [NotNullWhen(false)] out TException? exception, Predicate<TException>? filter = null)
         where T : notnull
     {
         try
         {
             result = body();
             exception = default;
-            return false;
+            return true;
         }
         catch (TException e) when (filter?.Invoke(e) ?? true)
         {
             result = default;
             exception = e;
-            return true;
+            return false;
         }
     }
 
