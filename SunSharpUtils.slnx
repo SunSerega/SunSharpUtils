@@ -1,4 +1,4 @@
-<Solution>
+﻿<Solution>
     <Folder Name="/0 Solution Items/">
         <File Path=".gitignore" />
         <File Path="Directory.Build.props" />
@@ -8,9 +8,9 @@
         <Project Path="SunSharpUtils/SunSharpUtils.csproj" />
     </Folder>
     <Folder Name="/2 Ext/">
-        <Project Path="SunSharpUtils.Ext/SunSharpUtils.Ext.csproj" />
         <Project Path="SunSharpUtils.Ext.Json/SunSharpUtils.Ext.Json.csproj" Id="65e92a0d-a60c-478c-a4c7-4454df678d19" />
         <Project Path="SunSharpUtils.Ext.UniversalBin/SunSharpUtils.Ext.UniversalBin.csproj" Id="b1c3e615-af88-428f-9127-45fcacfec015" />
+        <Project Path="SunSharpUtils.Ext/SunSharpUtils.Ext.csproj" />
     </Folder>
     <Folder Name="/3 Common/">
         <Project Path="SunSharpUtils.Logs/SunSharpUtils.Logs.csproj" />
@@ -21,6 +21,7 @@
         <Project Path="SunSharpUtils.WPF/SunSharpUtils.WPF.csproj" />
     </Folder>
     <Folder Name="/5 Background/">
+        <Project Path="SunSharpUtils.DataStash/SunSharpUtils.DataStash.csproj" Id="d3cbe490-fb61-442b-b66b-b5de1a91ecad" />
         <Project Path="SunSharpUtils.WinSvc/SunSharpUtils.WinSvc.csproj" />
     </Folder>
     <Project Path="Tests/Tests.csproj" />

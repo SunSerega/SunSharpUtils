@@ -8,9 +8,11 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
 		<PackageReference Include="MSTest" Version="3.6.4" />
+		<PackageReference Include="SunSharpUtils.DataStash" Version="1.0.0" />
 	</ItemGroup>
 	
 	<ItemGroup>
+		<!--<ProjectReference Include="..\SunSharpUtils.DataStash\SunSharpUtils.DataStash.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />-->
 		<ProjectReference Include="..\SunSharpUtils.Threading\SunSharpUtils.Threading.csproj" />
 	</ItemGroup>
 	
