@@ -8,12 +8,22 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
 		<PackageReference Include="MSTest" Version="3.6.4" />
-		<PackageReference Include="SunSharpUtils.DataStash" Version="1.0.0" />
 	</ItemGroup>
 	
 	<ItemGroup>
-		<!--<ProjectReference Include="..\SunSharpUtils.DataStash\SunSharpUtils.DataStash.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />-->
+		<ProjectReference Include="..\SunSharpUtils.Ext.Json\SunSharpUtils.Ext.Json.csproj" />
+		<ProjectReference Include="..\SunSharpUtils.Ext.UniversalBin\SunSharpUtils.Ext.UniversalBin.csproj" />
+		<ProjectReference Include="..\SunSharpUtils.Logs\SunSharpUtils.Logs.csproj" />
+		<ProjectReference Include="..\SunSharpUtils.Settings\SunSharpUtils.Settings.csproj" />
 		<ProjectReference Include="..\SunSharpUtils.Threading\SunSharpUtils.Threading.csproj" />
+		<ProjectReference Include="..\SunSharpUtils.WinSvc\SunSharpUtils.WinSvc.csproj" />
+		<ProjectReference Include="..\SunSharpUtils.WPF\SunSharpUtils.WPF.csproj" />
+		<ProjectReference Include="..\SunSharpUtils\SunSharpUtils.csproj" />
+	</ItemGroup>
+	
+	<ItemGroup>
+		<ProjectReference Include="..\SunSharpUtils.DataStash\SunSharpUtils.DataStash.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="..\SunSharpUtils.Ext\SunSharpUtils.Ext.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 	</ItemGroup>
 	
 </Project>

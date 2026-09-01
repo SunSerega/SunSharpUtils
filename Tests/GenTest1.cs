@@ -9,10 +9,14 @@ internal partial class GenTest1
 
     public GenTest1()
     {
-        this.Method1();
+        this.Method2();
+        this.Method3();
     }
-    
-    [DummyGen]
-    private partial void Method1();
+
+    [RpcApi]
+    private partial void Method2();
+
+    [RpcApi]
+    private partial void Method3();
 
 }
