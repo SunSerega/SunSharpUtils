@@ -1,32 +1,22 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	
 	<PropertyGroup>
-		<IsRoslynComponent>true</IsRoslynComponent>
-		<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-		<IncludeBuildOutput>false</IncludeBuildOutput>
+		<IncludeBuildOutput>true</IncludeBuildOutput>
 	</PropertyGroup>
-	
-	<ItemGroup>
-		<EmbeddedResource Include="ToCopy\*.cs" />
+    
+    <ItemGroup>
+        <ProjectReference Include="..\SunSharpUtils.Ext.UniversalBin\SunSharpUtils.Ext.UniversalBin.csproj" />
+        <ProjectReference Include="..\SunSharpUtils.Threading\SunSharpUtils.Threading.csproj" />
+        <ProjectReference Include="..\SunSharpUtils.WinSvc\SunSharpUtils.WinSvc.csproj" />
+    </ItemGroup>
+    
+    <ItemGroup>
+	    <ProjectReference Include="..\SunSharpUtils.DataStash.Analyzer\SunSharpUtils.DataStash.Analyzer.csproj" ReferenceOutputAssembly="true" OutputItemType="Analyzer" PrivateAssets="all" />
 	</ItemGroup>
-	
-	<ItemGroup>
-		<ProjectReference Include="..\SunSharpUtils.Ext\SunSharpUtils.Ext.csproj" />
-	</ItemGroup>
-	
-	<ItemGroup>
-		<ProjectReference Include="..\SunSharpUtils.Ext.UniversalBin\SunSharpUtils.Ext.UniversalBin.csproj" PrivateAssets="all" />
-		<ProjectReference Include="..\SunSharpUtils.Threading\SunSharpUtils.Threading.csproj" PrivateAssets="all" />
-		<ProjectReference Include="..\SunSharpUtils.WinSvc\SunSharpUtils.WinSvc.csproj" PrivateAssets="all" />
-	</ItemGroup>
-	
-	<ItemGroup>
-		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" PrivateAssets="all" />
-	</ItemGroup>
-	
-	<ItemGroup>
-		<None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-		<None Include="$(OutputPath)\SunSharpUtils.Ext.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-	</ItemGroup>
-	
+    
+    <ItemGroup>
+        <None Include="$(OutputPath)\SunSharpUtils.DataStash.Analyzer.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+        <!--<None Include="$(OutputPath)\SunSharpUtils.Ext.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />-->
+    </ItemGroup>
+    
 </Project>

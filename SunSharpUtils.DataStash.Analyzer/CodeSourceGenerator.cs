@@ -2,25 +2,23 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace SunSharpUtils.DataStash.GenExt;
+namespace SunSharpUtils.DataStash.Analyzer;
 
-internal sealed class TextGenerator
+internal sealed class CodeSourceGenerator
 {
     private readonly StringBuilder sb = new();
     private Int32 block_depth = 0;
 
-    private TextGenerator() { }
+    private CodeSourceGenerator() { }
 
-    public static String Gen(Action<TextGenerator> act)
+    public static String Gen(Action<CodeSourceGenerator> act)
     {
-        var gen = new TextGenerator();
+        var gen = new CodeSourceGenerator();
         act(gen);
-        return gen.Value;
+        return gen.sb.ToString();
     }
 
-    public String Value => this.sb.ToString();
-
-    public static TextGenerator operator +(TextGenerator gen, String str)
+    public static CodeSourceGenerator operator +(CodeSourceGenerator gen, String str)
     {
         var first_line = true;
         foreach (var line in str.Split('\n'))
@@ -35,7 +33,7 @@ internal sealed class TextGenerator
         return gen;
     }
 
-    public TextGenerator AddBlock(Action<TextGenerator> act)
+    public CodeSourceGenerator AddBlock(Action<CodeSourceGenerator> act)
     {
         var gen = this;
 
@@ -50,7 +48,7 @@ internal sealed class TextGenerator
         return gen;
     }
 
-    public void AddSeq<T>(IEnumerable<T> seq, Action<TextGenerator, T> add_el, Action<TextGenerator> add_sep)
+    public void AddSeq<T>(IEnumerable<T> seq, Action<CodeSourceGenerator, T> add_el, Action<CodeSourceGenerator> add_sep)
     {
         var first_el = true;
         foreach (var item in seq)

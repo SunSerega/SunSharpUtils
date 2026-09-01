@@ -9,8 +9,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
-using SunSharpUtils.DataStash.GenExt;
-using SunSharpUtils.Ext.Linq;
+using SunSharpUtils.DataStash.Analyzer;
 
 namespace SunSharpUtils.DataStash.Generators;
 
@@ -85,7 +84,7 @@ internal class CodeGenerator : IIncrementalGenerator
                     }
                 }
 
-                var source_code = TextGenerator.Gen(gen =>
+                var source_code = CodeSourceGenerator.Gen(gen =>
                 {
                     gen += $"using System;\n\n";
                     if (namespace_name is { })

@@ -15,7 +15,9 @@ using SunSharpUtils.WinSvc;
 
 namespace SunSharpUtils.DataStash;
 
+#pragma warning disable IDE0079 // Remove unnecessary suppression
 #pragma warning disable RS1035 // Do not use APIs banned for analyzers
+#pragma warning restore IDE0079 // Remove unnecessary suppression
 
 internal abstract class DiskWriter
 {
