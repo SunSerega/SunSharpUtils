@@ -17,11 +17,6 @@
 		<CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)obj\Generated</CompilerGeneratedFilesOutputPath>
 	</PropertyGroup>
 	
-	<!--<Target Name="RestoreNuget" BeforeTargets="PreBuildEvent">
-		<Exec Command="dotnet restore &quot;$(ProjectPath)&quot;" />
-		<Message Text="Restored nuget with dotnet" Importance="high"/>
-	</Target>-->
-	
 	<Import Project="Local.Directory.Build.props" Condition="Exists('Local.Directory.Build.props')" />
 	
 </Project>
