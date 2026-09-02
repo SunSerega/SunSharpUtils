@@ -87,7 +87,7 @@ public static class RpcApiUtils
                         Reader = new BinaryReader(stream),
                     };
                     act.Invoke(conn);
-                    stream.Flush();
+                    conn.Writer.Flush();
                     var server_cmd = conn.Reader.ReadEnum<EServerCommand>();
                     switch (server_cmd)
                     {

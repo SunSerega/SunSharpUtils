@@ -83,11 +83,7 @@ internal class CodeGenerator : IIncrementalGenerator
                 var methods = g.Select(m => new RpcApi.Method
                 {
                     Name = m.Name,
-                    Accessibility = m.DeclaredAccessibility switch
-                    {
-                        Accessibility.Private => "private",
-                        _ => throw new NotImplementedException()
-                    },
+                    Accessibility = m.DeclaredAccessibility.ConvertToGenStr(),
                     ReturnType = m.ReturnType.SpecialType is SpecialType.System_Void ? null : m.ReturnType.ToDisplayString(),
                     Parameters = m.Parameters.ToArray(p => new RpcApi.Method.Parameter
                     {
@@ -124,7 +120,7 @@ internal class CodeGenerator : IIncrementalGenerator
                     });
                     gen += $"";
 
-                    gen += $"static partial class {containing_type.Name}";
+                    gen += $"{containing_type.DeclaredAccessibility.ConvertToGenStr()} static partial class {containing_type.Name}";
                     gen.AddBlock(gen =>
                     {
                         gen += $"public static readonly {GenConstants.ClientConnectorClassName} ClientConnector = new(\"{containing_type.Name}\");";
@@ -231,10 +227,11 @@ internal class CodeGenerator : IIncrementalGenerator
                                 gen += $"conn.Writer.WriteEnum(EClientCommand.{method.Name});";
                                 foreach (var parameter in method.Parameters)
                                     gen += $"conn.Writer.WriteData({parameter.Name});";
-                                if (method.Parameters.Length != 0 || method.ReturnType is not null)
-                                    gen += $"conn.Writer.Flush();";
                                 if (method.ReturnType is { } ret_type)
+                                {
+                                    gen += $"conn.Writer.Flush();";
                                     gen += $"return conn.Reader.ReadData<{ret_type}>();";
+                                }
                             }, "{", "});");
                             gen += $"";
                         }
@@ -266,5 +263,18 @@ internal class CodeGenerator : IIncrementalGenerator
         }
 
     }
+
+}
+
+file static class SymbolExt
+{
+
+    public static String ConvertToGenStr(this Accessibility accessibility) => accessibility switch
+    {
+        Accessibility.Public => "public",
+        Accessibility.Internal => "internal",
+        Accessibility.Private => "private",
+        _ => throw new NotImplementedException($"Unexpected accessibility: {accessibility}")
+    };
 
 }

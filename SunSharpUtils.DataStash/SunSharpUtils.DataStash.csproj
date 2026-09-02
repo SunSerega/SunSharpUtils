@@ -16,7 +16,7 @@
     
     <ItemGroup>
         <None Include="$(OutputPath)\SunSharpUtils.DataStash.Analyzer.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-        <!--<None Include="$(OutputPath)\SunSharpUtils.Ext.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />-->
+        <None Include="$(OutputPath)\SunSharpUtils.Ext.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     </ItemGroup>
     
 </Project>

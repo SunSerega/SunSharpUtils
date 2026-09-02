@@ -7,7 +7,7 @@ namespace SunSharpUtils.DataStash.Analyzer;
 internal sealed class CodeLineGenerator
 {
     private readonly StringBuilder sb = new();
-    
+
     public static String Gen(Action<CodeLineGenerator> act)
     {
         var gen = new CodeLineGenerator();
