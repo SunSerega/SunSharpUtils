@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
@@ -10,12 +9,9 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 
 using SunSharpUtils.DataStash.Analyzer;
+using SunSharpUtils.Ext.Linq;
 
 namespace SunSharpUtils.DataStash.Generators;
-
-//TODO Maybe I can put attributes and stuff into a shared library
-// - Shared lib doesn't have intellisense
-// - What if I cross-include files from lib project in codegen project?
 
 [Generator]
 [SuppressMessage("MicrosoftCodeAnalysisCorrectness", "RS1041:Compiler extensions should be implemented in assemblies targeting netstandard2.0", Justification = "I can ensure it only runs on .Net10")]
@@ -84,35 +80,190 @@ internal class CodeGenerator : IIncrementalGenerator
                     }
                 }
 
+                var methods = g.Select(m => new RpcApi.Method
+                {
+                    Name = m.Name,
+                    Accessibility = m.DeclaredAccessibility switch
+                    {
+                        Accessibility.Private => "private",
+                        _ => throw new NotImplementedException()
+                    },
+                    ReturnType = m.ReturnType.SpecialType is SpecialType.System_Void ? null : m.ReturnType.ToDisplayString(),
+                    Parameters = m.Parameters.ToArray(p => new RpcApi.Method.Parameter
+                    {
+                        Name = p.Name,
+                        Type = p.Type.ToDisplayString()
+                    })
+                }).ToArray();
+
                 var source_code = CodeSourceGenerator.Gen(gen =>
                 {
-                    gen += $"using System;\n\n";
+                    gen += $"using System;";
+                    gen += $"using System.IO;";
+                    gen += $"using System.Threading;";
+                    gen += $"using System.Net.Sockets;";
+                    gen += $"";
+                    gen += $"using SunSharpUtils;";
+                    gen += $"using SunSharpUtils.DataStash;";
+                    gen += $"using SunSharpUtils.Ext.Bin;";
+                    gen += $"using SunSharpUtils.Ext.UniversalBin;";
+                    gen += $"";
+
                     if (namespace_name is { })
-                        gen += $"namespace {namespace_name};\n\n";
-                    gen += $"partial class {containing_type.Name}\n";
+                    {
+                        gen += $"namespace {namespace_name};";
+                        gen += $"";
+                    }
+
+                    gen += "file enum EClientCommand";
                     gen.AddBlock(gen =>
                     {
-                        gen.AddSeq(g, add_el: (gen, method_symbol) =>
-                        {
-                            var method_name = method_symbol.Name;
-                            var method_accessibility = method_symbol.DeclaredAccessibility switch
-                            {
-                                Accessibility.Private => "private",
-                                _ => throw new NotImplementedException()
-                            };
+                        gen += "Invalid = 0,";
+                        foreach (var method in methods)
+                            gen += $"{method.Name},";
+                    });
+                    gen += $"";
 
-                            gen += $"{method_accessibility} partial void {method_name}()\n";
+                    gen += $"static partial class {containing_type.Name}";
+                    gen.AddBlock(gen =>
+                    {
+                        gen += $"public static readonly {GenConstants.ClientConnectorClassName} ClientConnector = new(\"{containing_type.Name}\");";
+                        gen += $"";
+
+                        gen += $"public readonly struct ProcessClientConfig";
+                        gen.AddBlock(gen =>
+                        {
+                            gen += $"public required Socket Socket {{ get; init; }}";
+                            gen += $"public required CancellationToken CancelToken {{ get; init; }}";
+                            foreach (var method in methods)
+                            {
+                                gen += $"";
+                                gen += $"public delegate {method.ReturnType ?? "void"} {method.Name}Handler({method.Parameters.Select(p => $"{p.Type} {p.Name}").Append("CancellationToken cancel_token").JoinToString(", ")});";
+                                gen += $"public required {method.Name}Handler On{method.Name} {{ get; init; }}";
+                            }
+                        });
+                        gen += $"public static void ProcessClient(ProcessClientConfig config)";
+                        gen.AddBlock(gen =>
+                        {
+                            gen += $"var stream = new NetworkStream(config.Socket);";
+                            gen += $"var bw = new BinaryWriter(stream);";
+                            gen += $"var br = new BinaryReader(stream);";
+                            gen += $"try";
                             gen.AddBlock(gen =>
                             {
-                                gen += "throw new NotImplementedException();\n";
+                                gen += $"var client_cmd = br.ReadEnum<EClientCommand>();";
+                                gen += $"switch (client_cmd)";
+                                gen.AddBlock(gen =>
+                                {
+                                    foreach (var method in methods)
+                                    {
+                                        gen += $"case EClientCommand.{method.Name}:";
+                                        gen.AddBlock(gen =>
+                                        {
+                                            foreach (var parameter in method.Parameters)
+                                                gen += $"var {parameter.Name} = br.ReadData<{parameter.Type}>();";
+                                            gen.AddLine(gen =>
+                                            {
+                                                if (method.ReturnType is not null)
+                                                    gen *= $"var result = ";
+                                                gen *= "config.On";
+                                                gen *= method.Name;
+                                                gen *= ".Invoke(";
+                                                foreach (var parameter in method.Parameters)
+                                                {
+                                                    gen *= parameter.Name;
+                                                    gen *= ", ";
+                                                }
+                                                gen *= "config.CancelToken);";
+                                            });
+                                            if (method.ReturnType is not null)
+                                                gen += $"bw.WriteData(result);";
+                                            gen += $"break;";
+                                        });
+                                    }
+                                    gen += $"default:";
+                                    gen.AddTab(gen =>
+                                    {
+                                        gen += $"throw new NotImplementedException($\"Unknown client command: {{client_cmd}}\");";
+                                    });
+                                });
+                                gen += $"bw.WriteEnum({GenConstants.ServerCommandEnumName}.{nameof(RpcApiUtils.EServerCommand.Success)});";
                             });
-                        }, add_sep: gen => gen += "\n");
+                            gen += $"catch (Exception ex)";
+                            gen.AddBlock(gen =>
+                            {
+                                gen += $"Err.HandleDuring(() =>";
+                                gen.AddBlock(gen =>
+                                {
+                                    gen += $"if (!config.Socket.Connected)";
+                                    gen.AddTab(gen =>
+                                    {
+                                        gen += $"return;";
+                                    });
+                                    gen += $"bw.WriteEnum({GenConstants.ServerCommandEnumName}.{nameof(RpcApiUtils.EServerCommand.Error)});";
+                                    gen += $"bw.Write(ex.Message);";
+                                }, "{", "});");
+                                gen += $"throw;";
+                            });
+                        });
+                        gen += $"";
+
+                        foreach (var method in methods)
+                        {
+                            gen.AddLine(gen =>
+                            {
+                                gen *= method.Accessibility;
+                                gen *= " static partial ";
+                                gen *= method.ReturnType ?? "void";
+                                gen *= " ";
+                                gen *= method.Name;
+                                gen *= "(";
+                                gen.AddSeq(method.Parameters, (gen, param) =>
+                                {
+                                    gen *= param.Type;
+                                    gen *= " ";
+                                    gen *= param.Name;
+                                }, ", ");
+                                gen *= ") => ClientConnector.Connect(conn =>";
+                            });
+                            gen.AddBlock(gen =>
+                            {
+                                gen += $"conn.Writer.WriteEnum(EClientCommand.{method.Name});";
+                                foreach (var parameter in method.Parameters)
+                                    gen += $"conn.Writer.WriteData({parameter.Name});";
+                                if (method.Parameters.Length != 0 || method.ReturnType is not null)
+                                    gen += $"conn.Writer.Flush();";
+                                if (method.ReturnType is { } ret_type)
+                                    gen += $"return conn.Reader.ReadData<{ret_type}>();";
+                            }, "{", "});");
+                            gen += $"";
+                        }
                     });
                 });
 
-                context.AddSource($"{containing_type.Name}_RpcApi.g.cs", SourceText.From(source_code, GenConstants.Encoding));
+                context.AddSource($"{containing_type.Name}_{nameof(RpcApi)}.g.cs", SourceText.From(source_code, GenConstants.Encoding));
             }
         });
+
+    }
+
+    private static class RpcApi
+    {
+
+        public readonly struct Method
+        {
+            public required String Name { get; init; }
+            public required String Accessibility { get; init; }
+
+            public required String? ReturnType { get; init; }
+            public required Parameter[] Parameters { get; init; }
+
+            public readonly struct Parameter
+            {
+                public required String Name { get; init; }
+                public required String Type { get; init; }
+            }
+        }
 
     }
 

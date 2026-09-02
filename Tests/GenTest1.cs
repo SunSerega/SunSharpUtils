@@ -1,22 +1,22 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
 
-namespace SunSharpUtils.DataStash;
+using SunSharpUtils.DataStash;
 
-internal partial class GenTest1
+namespace Tests;
+
+internal static partial class GenTest1
 {
 
-    public GenTest1()
+    static GenTest1()
     {
-        this.Method2();
-        this.Method3();
+        Method2(123);
+        Method3();
     }
 
     [RpcApi]
-    private partial void Method2();
+    private static partial void Method2(Int32 asd);
 
     [RpcApi]
-    private partial void Method3();
+    private static partial Int32 Method3();
 
 }

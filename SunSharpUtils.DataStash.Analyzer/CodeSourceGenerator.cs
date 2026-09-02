@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Text;
 
 namespace SunSharpUtils.DataStash.Analyzer;
@@ -20,46 +19,42 @@ internal sealed class CodeSourceGenerator
 
     public static CodeSourceGenerator operator +(CodeSourceGenerator gen, String str)
     {
-        var first_line = true;
         foreach (var line in str.Split('\n'))
         {
-            if (!first_line)
-                gen.sb.Append('\n');
             if (!String.IsNullOrEmpty(line))
+            {
                 gen.sb.Append(new String('\t', gen.block_depth));
-            gen.sb.Append(line);
-            first_line = false;
+                gen.sb.Append(line);
+            }
+            gen.sb.Append('\n');
         }
         return gen;
     }
 
-    public CodeSourceGenerator AddBlock(Action<CodeSourceGenerator> act)
+    public CodeSourceGenerator AddBlock(Action<CodeSourceGenerator> act, String? open_brace, String? close_brace)
     {
         var gen = this;
 
-        gen += "{\n";
+        if (open_brace is not null)
+            gen += $"{open_brace}";
         gen.block_depth += 1;
 
         act(gen);
 
         gen.block_depth -= 1;
-        gen += "}\n";
+        if (close_brace is not null)
+            gen += $"{close_brace}";
 
         return gen;
     }
+    public CodeSourceGenerator AddBlock(Action<CodeSourceGenerator> act) => this.AddBlock(act, "{", "}");
+    public CodeSourceGenerator AddTab(Action<CodeSourceGenerator> act) => this.AddBlock(act, null, null);
 
-    public void AddSeq<T>(IEnumerable<T> seq, Action<CodeSourceGenerator, T> add_el, Action<CodeSourceGenerator> add_sep)
+    public CodeSourceGenerator AddLine(Action<CodeLineGenerator> act)
     {
-        var first_el = true;
-        foreach (var item in seq)
-        {
-            if (!first_el)
-                add_sep(this);
-            add_el(this, item);
-            first_el = false;
-        }
+        var gen = this;
+        gen += CodeLineGenerator.Gen(act);
+        return gen;
     }
-    public void AddSeq(IEnumerable<String> seq, String sep) =>
-        this.AddSeq(seq, add_el: (gen, el) => gen += el, add_sep: gen => gen += sep);
 
 }
