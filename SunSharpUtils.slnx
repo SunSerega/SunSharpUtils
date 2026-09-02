@@ -2,6 +2,7 @@
     <Folder Name="/0 Solution Items/">
         <File Path=".gitignore" />
         <File Path="Directory.Build.props" />
+        <File Path="Directory.Build.targets" />
         <File Path="Local.Directory.Build.props" />
         <File Path="ProjectPublish.ps1" />
     </Folder>

@@ -5,7 +5,9 @@
 	
 	<PropertyGroup>
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
 		<Authors>SunSerega</Authors>
+        
 		<PackageOutputPath>$(MSBuildThisFileDirectory)\0Deployed</PackageOutputPath>
 		
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
