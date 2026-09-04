@@ -18,6 +18,8 @@ public sealed class ProcessingQueue<T>() : IEnumerable<T>
 {
     private readonly ConcurrentQueue<T> items = [];
     private readonly ManualResetEventSlim ev = new(initialState: false);
+    private Boolean processing_started = false;
+    private Boolean processing_stopped = false;
 
     /// <summary>
     /// </summary>
@@ -31,13 +33,13 @@ public sealed class ProcessingQueue<T>() : IEnumerable<T>
     /// </summary>
     public void Enqueue(T item)
     {
+        if (this.processing_stopped)
+            throw new InvalidOperationException($"{nameof(ProcessingQueue<>)} already stopped processing");
         this.items.Enqueue(item);
         this.ev.Set();
     }
 
-    /// <summary>
-    /// </summary>
-    public IEnumerable<T> DequeueAll()
+    private IEnumerable<T> DequeueAll()
     {
         while (this.items.TryDequeue(out var item))
             yield return item;
@@ -66,6 +68,10 @@ public sealed class ProcessingQueue<T>() : IEnumerable<T>
     /// <param name="config"></param>
     public Thread StartProcessingThread(ProcessingThreadConfig config)
     {
+        if (this.processing_started)
+            throw new InvalidOperationException($"{nameof(ProcessingQueue<>)} already started processing");
+        this.processing_started = true;
+
         var on_new_items = config.OnNewItems;
         var cancel_token = config.CancelToken;
         var do_wait = config.DoWait;
@@ -104,6 +110,7 @@ public sealed class ProcessingQueue<T>() : IEnumerable<T>
                     Err.Handle(ex);
                 }
             }
+            this.processing_stopped = true;
         }
     }
 

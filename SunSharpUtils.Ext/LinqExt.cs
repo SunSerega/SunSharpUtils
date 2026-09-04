@@ -2,6 +2,8 @@
 
 using System.Collections.Generic;
 
+using SunSharpUtils.Ext.Math;
+
 namespace SunSharpUtils.Ext.Linq;
 
 /// <summary>
@@ -11,7 +13,7 @@ public static class LinqExt
 
     /// <summary>
     /// </summary>
-    public static Int32 CountOf<T>(this IEnumerable<T> seq, T target, EqualityComparer<T>? comparer = null)
+    public static Int32 CountOf<T>(this IEnumerable<T> seq, T target, IEqualityComparer<T>? comparer = null)
     {
         comparer ??= EqualityComparer<T>.Default;
         var count = 0;
@@ -25,7 +27,7 @@ public static class LinqExt
 
     /// <summary>
     /// </summary>
-    public static Boolean SequenceEqual<T>(this IEnumerable<T> seq1, IEnumerable<T> seq2, EqualityComparer<T>? comparer = null)
+    public static Boolean SequenceEqual<T>(this IEnumerable<T> seq1, IEnumerable<T> seq2, IEqualityComparer<T>? comparer = null)
     {
         comparer ??= EqualityComparer<T>.Default;
         if (seq1 is IReadOnlyCollection<T> c1 && seq2 is IReadOnlyCollection<T> c2)
@@ -191,5 +193,61 @@ public static class LinqExt
         }
         return to_remove.Count;
     }
+
+    /// <summary>
+    /// Groups adjacent elements of a sequence by a specified key selector and projects the results
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <typeparam name="TKey"></typeparam>
+    /// <typeparam name="TResult"></typeparam>
+    /// <param name="seq"></param>
+    /// <param name="key_selector"></param>
+    /// <param name="result_selector"></param>
+    /// <param name="comparer"></param>
+    /// <returns></returns>
+    public static IEnumerable<TResult> AdjacentGroupBy<T, TKey, TResult>(this IEnumerable<T> seq, Func<T, TKey> key_selector, Func<TKey, IReadOnlyList<T>, TResult> result_selector, IEqualityComparer<TKey>? comparer = null)
+    {
+        comparer ??= EqualityComparer<TKey>.Default;
+
+        var curr_key = default(TKey);
+        var curr_group = new List<T>();
+        if (seq is IReadOnlyCollection<T> coll)
+            curr_group.EnsureCapacity(coll.Count.ClampTop(1024));
+        foreach (var item in seq)
+        {
+            var item_key = key_selector(item);
+
+            if (curr_group.Count == 0)
+            {
+                curr_key = item_key;
+                curr_group.Add(item);
+                continue;
+            }
+
+            if (comparer.Equals(curr_key, item_key))
+            {
+                curr_group.Add(item);
+                continue;
+            }
+
+            yield return result_selector(curr_key!, curr_group);
+            curr_key = item_key;
+            curr_group.Clear();
+            curr_group.Add(item);
+        }
+
+        if (curr_group.Count != 0)
+            yield return result_selector(curr_key!, curr_group);
+    }
+
+    /// <summary>
+    /// Groups adjacent equal elements of a sequence and returns minimal info for each group: unique item + count of its repetitions
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="seq"></param>
+    /// <param name="comparer"></param>
+    /// <returns></returns>
+    public static IEnumerable<(T item, Int32 count)> AdjacentGroup<T>(this IEnumerable<T> seq, IEqualityComparer<T>? comparer = null) =>
+        seq.AdjacentGroupBy(item => item, (key, group) => (item: key, count: group.Count), comparer);
 
 }
