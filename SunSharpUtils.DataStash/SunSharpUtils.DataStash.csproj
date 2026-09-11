@@ -1,9 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	
 	<PropertyGroup>
-		<IncludeBuildOutput>true</IncludeBuildOutput>
+        <!--<IncludeBuildOutput>true</IncludeBuildOutput>-->
 	</PropertyGroup>
-    
+	
     <ItemGroup>
         <ProjectReference Include="..\SunSharpUtils.Ext.UniversalBin\SunSharpUtils.Ext.UniversalBin.csproj" />
         <ProjectReference Include="..\SunSharpUtils.Threading\SunSharpUtils.Threading.csproj" />

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
@@ -40,6 +41,8 @@ internal class CodeGenerator : IIncrementalGenerator
             }
         });
 
+        #region Rpc
+
         var rpc_api_methods = context.SyntaxProvider.ForAttributeWithMetadataName(
             typeof(RpcApiAttribute).FullName!,
             (node, _) => true,
@@ -52,33 +55,38 @@ internal class CodeGenerator : IIncrementalGenerator
                 var containing_type = (INamedTypeSymbol?)g.Key ?? throw new InvalidOperationException("Containing type is null");
                 var namespace_name = containing_type.ContainingNamespace.IsGlobalNamespace ? null : containing_type.ContainingNamespace.ToDisplayString();
 
+                var is_invalid = false;
                 foreach (var syntax in containing_type.DeclaringSyntaxReferences.Select(r => r.GetSyntax()))
                 {
                     if (syntax is not ClassDeclarationSyntax class_declaration)
                     {
                         context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
-                            id: "DS001",
+                            id: "DS_RPC001",
                             title: "Invalid type declaration for rpc",
                             messageFormat: "Containing type '{0}' needs to be a class",
                             category: "CodeGenerator",
                             DiagnosticSeverity.Error,
                             isEnabledByDefault: true
                         ), syntax.GetLocation(), containing_type.Name));
+                        is_invalid = true;
                         continue;
                     }
                     if (!class_declaration.Modifiers.Any(SyntaxKind.PartialKeyword))
                     {
                         context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
-                            id: "DS002",
+                            id: "DS_RPC002",
                             title: "Class must be partial",
                             messageFormat: "Containing class '{0}' must be declared as partial",
                             category: "CodeGenerator",
                             DiagnosticSeverity.Error,
                             isEnabledByDefault: true
                         ), class_declaration.GetLocation(), containing_type.Name));
+                        is_invalid = true;
                         continue;
                     }
                 }
+                if (is_invalid)
+                    continue;
 
                 var methods = g.Select(m => new RpcApi.Method
                 {
@@ -242,6 +250,260 @@ internal class CodeGenerator : IIncrementalGenerator
             }
         });
 
+        #endregion
+
+        #region DataStash
+
+        var data_stash_types = context.SyntaxProvider.ForAttributeWithMetadataName(
+            typeof(AutoDataStashAttribute).FullName!,
+            (node, _) => true,
+            (context, _) => (type: (INamedTypeSymbol)context.TargetSymbol, attrib: context.Attributes.Single(a=>a.AttributeClass!.Name == nameof(AutoDataStashAttribute)))
+        );
+        context.RegisterSourceOutput(data_stash_types, (context, gen_item) =>
+        {
+            var (data_stash_type, attrib) = gen_item;
+            if (data_stash_type.BaseType is not { } data_stash_base_type || data_stash_base_type.Name != nameof(DataStash<>) || data_stash_base_type.TypeArguments.Length != 1)
+            {
+                data_stash_type.ReportOnAllDeclaringSyntax(
+                    context,
+                    id: "DS001",
+                    title: "Invalid base type for DataStash",
+                    messageFormat: "DataStash type '{0}' needs to inherit from DataStash<>",
+                    DiagnosticSeverity.Error,
+                    args: [data_stash_type.Name]
+                );
+                return;
+            }
+            var is_invalid = false;
+            foreach (var syntax in data_stash_type.DeclaringSyntaxReferences.Select(r => r.GetSyntax()))
+            {
+                if (syntax is not ClassDeclarationSyntax class_declaration)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
+                        id: "DS002",
+                        title: "Invalid type declaration for DataStash",
+                        messageFormat: "DataStash type '{0}' needs to be a class",
+                        category: "CodeGenerator",
+                        DiagnosticSeverity.Error,
+                        isEnabledByDefault: true
+                    ), syntax.GetLocation(), data_stash_type.Name));
+                    is_invalid = true;
+                    continue;
+                }
+                if (!class_declaration.Modifiers.Any(SyntaxKind.PartialKeyword))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
+                        id: "DS003",
+                        title: "Class must be partial",
+                        messageFormat: "DataStash class '{0}' must be declared as partial",
+                        category: "CodeGenerator",
+                        DiagnosticSeverity.Error,
+                        isEnabledByDefault: true
+                    ), class_declaration.GetLocation(), data_stash_type.Name));
+                    is_invalid = true;
+                    continue;
+                }
+                if (data_stash_type.ContainingType is not null)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
+                        id: "DS004",
+                        title: "Unsupported type declaration for data stash",
+                        messageFormat: "DataStash type '{0}' isn't expected to be nested",
+                        category: "CodeGenerator",
+                        DiagnosticSeverity.Error,
+                        isEnabledByDefault: true
+                    ), syntax.GetLocation(), data_stash_type.Name));
+                    is_invalid = true;
+                    continue;
+                }
+            }
+            if (is_invalid)
+                return;
+
+            var namespace_name = data_stash_type.ContainingNamespace.IsGlobalNamespace ? null : data_stash_type.ContainingNamespace.ToDisplayString();
+            var typed_content_type = data_stash_base_type.TypeArguments.Single();
+
+            var file_blocks = new Dictionary<String, (INamedTypeSymbol network_data_type, INamedTypeSymbol file_data_type, INamedTypeSymbol model_type)>();
+            var typed_model_parents = new Dictionary<String, INamedTypeSymbol?>();
+            {
+                var core_implemented = false;
+                foreach (var impl_type in typed_content_type.Interfaces)
+                {
+                    switch (impl_type.Name)
+                    {
+                        case nameof(DataStash<>.ITypedContent<>):
+                            if (core_implemented)
+                            {
+                                typed_content_type.ReportOnAllDeclaringSyntax(
+                                    context,
+                                    id: "DS006",
+                                    title: "Multiple core interface implementations for typed content",
+                                    messageFormat: "Typed content type '{0}' implements core interface '{1}' multiple times",
+                                    DiagnosticSeverity.Error,
+                                    args: [typed_content_type.Name, impl_type.Name]
+                                );
+                            }
+                            core_implemented = true;
+                            break;
+                        case nameof(DataStash<>.ITypedContentWithRootBlock<,,>):
+                        {
+                            if (impl_type.TypeArguments.Length != 3)
+                            {
+                                typed_content_type.ReportOnAllDeclaringSyntax(
+                                    context,
+                                    id: "DS007",
+                                    title: "Unexpected number of type arguments for typed content interface",
+                                    messageFormat: "Typed content type '{0}' implements interface '{1}' with unexpected number of type arguments ({2} instead of {3})",
+                                    DiagnosticSeverity.Error,
+                                    args: [typed_content_type.Name, impl_type.Name, impl_type.TypeArguments.Length, 3]
+                                );
+                                continue;
+                            }
+                            var network_data_type = (INamedTypeSymbol)impl_type.TypeArguments[0];
+                            var file_data_type = (INamedTypeSymbol)impl_type.TypeArguments[1];
+                            var model_type = (INamedTypeSymbol)impl_type.TypeArguments[2];
+                            file_blocks.Add(model_type.Name, (network_data_type, file_data_type, model_type));
+                            typed_model_parents.Add(model_type.Name, null);
+                            break;
+                        }
+                        case nameof(DataStash<>.ITypedContentWithChildBlock<,,,>):
+                        {
+                            if (impl_type.TypeArguments.Length != 4)
+                            {
+                                typed_content_type.ReportOnAllDeclaringSyntax(
+                                    context,
+                                    id: "DS007",
+                                    title: "Unexpected number of type arguments for typed content interface",
+                                    messageFormat: "Typed content type '{0}' implements interface '{1}' with unexpected number of type arguments ({2} instead of {3})",
+                                    DiagnosticSeverity.Error,
+                                    args: [typed_content_type.Name, impl_type.Name, impl_type.TypeArguments.Length, 4]
+                                );
+                                continue;
+                            }
+                            var network_data_type = (INamedTypeSymbol)impl_type.TypeArguments[0];
+                            var file_data_type = (INamedTypeSymbol)impl_type.TypeArguments[1];
+                            var parent_model_type = (INamedTypeSymbol)impl_type.TypeArguments[2];
+                            var model_type = (INamedTypeSymbol)impl_type.TypeArguments[3];
+                            file_blocks.Add(model_type.Name, (network_data_type, file_data_type, model_type));
+                            typed_model_parents.Add(model_type.Name, parent_model_type);
+                            break;
+                        }
+                        default:
+                            typed_content_type.ReportOnAllDeclaringSyntax(
+                                context,
+                                id: "DS008",
+                                title: "Unexpected interface implemented by typed content",
+                                messageFormat: "Typed content type '{0}' implements unexpected interface '{1}'",
+                                DiagnosticSeverity.Warning,
+                                args: [typed_content_type.Name, impl_type.Name]
+                            );
+                            break;
+                    }
+
+                }
+            }
+            var all_parent_model_names = typed_model_parents.Values.OfType<INamedTypeSymbol>().Select(t => t.Name).ToHashSet();
+
+            var source_code = CodeSourceGenerator.Gen(gen =>
+            {
+                gen += $"using System;";
+                gen += $"using System.IO;";
+                gen += $"";
+
+                if (namespace_name is { })
+                {
+                    gen += $"namespace {namespace_name};";
+                    gen += $"";
+                }
+
+                gen += $"{data_stash_type.DeclaredAccessibility.ConvertToGenStr()} partial class {data_stash_type.Name}";
+                gen.AddBlock(gen =>
+                {
+                    gen += $"";
+
+                    gen += $"protected override void ApplyBlock(BinaryReader br, DateTime record_time, BlockLocation location, {typed_content_type.ToDisplayString()} file_content)";
+                    gen.AddBlock(gen =>
+                    {
+                        //TODO
+                        gen += $"throw new NotImplementedException();";
+                    });
+                    gen += $"";
+                    
+                    gen += $"protected override void ResaveContent({typed_content_type.ToDisplayString()} content, Stream stream)";
+                    gen.AddBlock(gen =>
+                    {
+                        //TODO
+                        gen += $"throw new NotImplementedException();";
+                    });
+                    gen += $"";
+
+                    #region ResaveContext
+
+                    String ResaveContextClassName(String? container_model_name)
+                    {
+                        var res = "ResaveContext";
+                        if (container_model_name is not null)
+                            res += $"_{container_model_name}";
+                        return res;
+                    }
+
+                    foreach (var container_model_name in all_parent_model_names.Prepend(null))
+                    {
+                        gen += $"private sealed class {ResaveContextClassName(container_model_name)}";
+                        gen.AddBlock(gen =>
+                        {
+                            gen += $"";
+
+                            foreach (var (model_name, parent_model_type) in typed_model_parents)
+                            {
+                                Boolean ShouldGenerate()
+                                {
+                                    if (parent_model_type?.Name == container_model_name)
+                                        return true;
+                                    if (container_model_name is null && parent_model_type!.NullableAnnotation.HasFlag(NullableAnnotation.Annotated))
+                                        return true;
+                                    return false;
+                                }
+                                if (!ShouldGenerate())
+                                    continue;
+
+                                gen.AddLine(gen =>
+                                {
+                                    gen *= "public void AddBlock(";
+                                    var (network_data_type, file_data_type, model_type)= file_blocks[model_name];
+                                    gen *= file_data_type.ToDisplayString();
+                                    gen *= " file_data";
+                                    if (all_parent_model_names.Contains(model_name))
+                                    {
+                                        gen *= ", Action<";
+                                        gen *= ResaveContextClassName(model_name);
+                                        gen *= "> resave_children";
+                                    }
+                                    gen *= ")";
+                                });
+                                gen.AddBlock(gen =>
+                                {
+                                    //TODO
+                                    gen += $"throw new NotImplementedException();";
+                                });
+                                gen += $"";
+
+                            }
+
+                        });
+                        gen += $"";
+                    }
+
+                    #endregion
+
+                });
+
+            });
+            context.AddSource($"{data_stash_type.Name}.g.cs", SourceText.From(source_code, GenConstants.Encoding));
+        });
+
+        #endregion
+
     }
 
     private static class RpcApi
@@ -276,5 +538,21 @@ file static class SymbolExt
         Accessibility.Private => "private",
         _ => throw new NotImplementedException($"Unexpected accessibility: {accessibility}")
     };
+
+    public static void ReportOnAllDeclaringSyntax(this ISymbol symbol, SourceProductionContext context, String id, String title, String messageFormat, DiagnosticSeverity severity, Func<SyntaxNode, Object?[]?>? make_args = null)
+    {
+        foreach (var syntax_ref in symbol.DeclaringSyntaxReferences)
+        {
+            var syntax = syntax_ref.GetSyntax();
+            context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
+                id, title, messageFormat,
+                category: "CodeGenerator",
+                severity,
+                isEnabledByDefault: true
+            ), syntax.GetLocation(), make_args?.Invoke(syntax)));
+        }
+    }
+    public static void ReportOnAllDeclaringSyntax(this ISymbol symbol, SourceProductionContext context, String id, String title, String messageFormat, DiagnosticSeverity severity, Object?[]? args) =>
+        symbol.ReportOnAllDeclaringSyntax(context, id, title, messageFormat, severity, _ => args);
 
 }
