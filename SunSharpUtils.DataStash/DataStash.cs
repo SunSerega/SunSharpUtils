@@ -273,11 +273,24 @@ public abstract class DataStash
     public interface ITypedContent<TSelf>
         where TSelf : class, ITypedContent<TSelf>, new()
     {
+
+        /// <summary>
+        /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
+        /// </summary>
+        public abstract void ApplyBlock(BinaryReader br, DateTime record_time, DataStash<TSelf>.BlockLocation location);
+
         /// <summary>
         /// Called when sealing is skipped due to open blocks
+        /// <para/>
+        /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
         /// </summary>
         /// <param name="block_locations"></param>
-        public void LogSealHeldByBlocks(DataStash<TSelf>.BlockLocation[] block_locations);
+        public abstract void LogSealHeldByBlocks(DataStash<TSelf>.BlockLocation[] block_locations);
+
+        /// <summary>
+        /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
+        /// </summary>
+        public abstract void Resave(Stream stream);
 
         /// <summary>
         /// Called after merging (when sealing or consolidating) to verify that content after save and load is the same as before
@@ -386,14 +399,14 @@ public abstract class DataStash<TTypedContent> : DataStash
     {
         var file_path = Path.Combine(this.root_dir.FullName, $"{file_id}{file_ext}");
         using var fs = File.OpenRead(file_path);
-        return this.ReadSealedFileContent($"{file_id}", file_id, fs);
+        return ReadSealedFileContent($"{file_id}", file_id, fs);
     }
 
-    private TTypedContent ReadSealedFileContent(String description, FileId file_id, FileStream fs)
+    private static TTypedContent ReadSealedFileContent(String description, FileId file_id, FileStream fs)
     {
         var content = new TTypedContent();
         foreach (var (br, record_time, location) in ReadFileBlocks(description, fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumer: null))
-            this.ApplyBlock(br, record_time, location, content);
+            content.ApplyBlock(br, record_time, location);
         return content;
     }
 
@@ -402,7 +415,7 @@ public abstract class DataStash<TTypedContent> : DataStash
         var file_path = Path.Combine(this.root_dir.FullName, $"{file_id}{file_ext}");
         using var fs = File.OpenRead(file_path);
         foreach (var (br, record_time, location) in ReadFileBlocks($"{file_id}", fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumer: null))
-            this.ApplyBlock(br, record_time, location, content);
+            content.ApplyBlock(br, record_time, location);
     }
 
     private static IEnumerable<(BinaryReader block_br, DateTime record_time, BlockLocation location)> ReadFileBlocks(
@@ -501,14 +514,6 @@ public abstract class DataStash<TTypedContent> : DataStash
 
     /// <summary>
     /// </summary>
-    protected abstract void ApplyBlock(BinaryReader br, DateTime record_time, BlockLocation location, TTypedContent file_content);
-
-    /// <summary>
-    /// </summary>
-    protected abstract void ResaveContent(TTypedContent content, Stream stream);
-
-    /// <summary>
-    /// </summary>
     protected BlockLocation ChooseWriteLocation()
     {
         var file_id = FileId.Current;
@@ -562,9 +567,10 @@ public abstract class DataStash<TTypedContent> : DataStash
         /// <summary>
         /// Adds block's content from file to this instance, and returns newly created representation of this block
         /// </summary>
+        /// <param name="record_time"></param>
         /// <param name="content"></param>
         /// <returns></returns>
-        public TTyped ReadBlock(TFileData content);
+        public TTyped ReadBlock(DateTime record_time, TFileData content);
     }
     /// <summary>
     /// Implement by typed file content type to add TData block with a parent
@@ -584,7 +590,7 @@ public abstract class DataStash<TTypedContent> : DataStash
         /// <inheritdoc cref="ITypedContentWithRootBlock{TNetworkData, TFileData, TTyped}.ParseNetworkPacket(TNetworkData)"/>
         public TFileData ParseNetworkPacket(TNetworkData data, out TTypedParent found_parent);
         /// <inheritdoc cref="ITypedContentWithRootBlock{TNetworkData, TFileData, TTyped}.ReadBlock"/>
-        public TTyped ReadBlock(TTypedParent parent, TFileData content);
+        public TTyped ReadBlock(DateTime record_time, TTypedParent parent, TFileData content);
     }
 
     #endregion
@@ -704,7 +710,7 @@ public abstract class DataStash<TTypedContent> : DataStash
 
                         var (block_br, record_time, location) = block_enumerators[ind].Current;
                         used_ids.Add(location.BlockId);
-                        this.data_stash.ApplyBlock(block_br, record_time, location, this.typed_content);
+                        this.typed_content.ApplyBlock(block_br, record_time, location);
 
                         if (!block_enumerators[ind].MoveNext())
                             inds_with_next.Remove(ind);
@@ -809,7 +815,7 @@ public abstract class DataStash<TTypedContent> : DataStash
             var merge_file_path = Path.Combine(merge_dir.FullName, $"{this.id}{file_ext}");
             var final_file_path = Path.Combine(this.data_stash.root_dir.FullName, $"{this.id}{file_ext}");
             using (var fs = File.Open(merge_file_path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                this.data_stash.ResaveContent(this.typed_content, fs);
+                this.typed_content.Resave(fs);
             File.Move(merge_file_path, final_file_path, overwrite: false);
             merge_dir.Delete(recursive: false);
 
@@ -1146,13 +1152,13 @@ public abstract class DataStash<TTypedContent> : DataStash
 
                             var merge_file_path = Path.Combine(merge_dir.FullName, $"{id_keep}{file_ext}");
                             using (var fs = File.Open(merge_file_path, FileMode.CreateNew))
-                                this.data_stash.ResaveContent(content, fs);
+                                content.Resave(fs);
 
                             Prompt.Notify($"{this.data_stash}: Validating after consolidating {id_merge} => {id_keep}");
                             try
                             {
                                 using var fs = File.OpenRead(merge_file_path);
-                                var resaved_content = this.data_stash.ReadSealedFileContent($"merge result {id_merge} => {id_keep}", id_keep, fs);
+                                var resaved_content = ReadSealedFileContent($"merge result {id_merge} => {id_keep}", id_keep, fs);
                                 TTypedContent.ValidateEqual(content, resaved_content);
                             }
                             catch (Exception ex)

@@ -76,7 +76,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
     //TODO This content is not thread safe
     // - But internals of DataStash (like choosing a block location) are thread-safe
     // - I think I need locks in code-generated implementation
-    public sealed class TypedContent : ITypedContent<TypedContent, ResaveContext>
+    public sealed partial class TypedContent : ITypedContent<TypedContent, ResaveContext>
         , ITypedContentWithRootBlock<NetworkData.A, FileData.A, TypedContent.A>
         , ITypedContentWithChildBlock<NetworkData.B, FileData.B, TypedContent.A, TypedContent.B>
         , ITypedContentWithChildBlock<NetworkData.C, FileData.C, TypedContent.A?, TypedContent.C>
@@ -100,23 +100,23 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             return data.Content;
         }
 
-        public A ReadBlock(FileData.A content)
+        public A ReadBlock(DateTime record_time, FileData.A content)
         {
-            var res = new A(content.Id, content.X);
+            var res = new A(content.Id, content.X) { RecordTime = record_time };
             this.AllA.Add(content.Id, res);
             return res;
         }
 
-        public B ReadBlock(A parent, FileData.B content)
+        public B ReadBlock(DateTime record_time, A parent, FileData.B content)
         {
-            var res = new B(content.Id, parent, content.X);
+            var res = new B(content.Id, parent, content.X) { RecordTime = record_time };
             parent.AllB.Add(content.Id, res);
             return res;
         }
 
-        public C ReadBlock(A? parent, FileData.C content)
+        public C ReadBlock(DateTime record_time, A? parent, FileData.C content)
         {
-            var res = new C(content.Id, parent, content.X); 
+            var res = new C(content.Id, parent, content.X) { RecordTime = record_time };
             (parent?.AllC ?? this.GlobalC).Add(content.Id, res);
             return res;
         }
@@ -130,7 +130,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
                     Id = a.Id,
                     X = a.X,
                 };
-                context.AddBlock(file_data, context =>
+                context.AddBlock(a, file_data, context =>
                 {
                     foreach (var b in a.AllB.Values)
                     {
@@ -139,7 +139,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
                             Id = b.Id,
                             X = b.X,
                         };
-                        context.AddBlock(file_data);
+                        context.AddBlock(b, file_data);
                     }
                     foreach (var c in a.AllC.Values)
                     {
@@ -148,7 +148,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
                             Id = c.Id,
                             X = c.X,
                         };
-                        context.AddBlock(file_data);
+                        context.AddBlock(c, file_data);
                     }
                 });
             }
@@ -159,7 +159,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
                     Id = c.Id,
                     X = c.X,
                 };
-                context.AddBlock(file_data);
+                context.AddBlock(c, file_data);
             }
         }
 
@@ -168,7 +168,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             ITypedContent<TypedContent>.ValidateDictEqual(content1.AllA, content2.AllA, ValidateA);
             ITypedContent<TypedContent>.ValidateDictEqual(content1.GlobalC, content2.GlobalC, ValidateC);
 
-            static void ValidateA(A a1, A a2)
+            void ValidateA(A a1, A a2)
             {
                 if (a1.X != a2.X)
                     throw new InvalidOperationException($"{nameof(A)}[{a1.Id}].X: {a1.X} vs {a2.X}");
@@ -176,13 +176,13 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
                 ITypedContent<TypedContent>.ValidateDictEqual(a1.AllC, a2.AllC, ValidateC);
             }
 
-            static void ValidateB(B b1, B b2)
+            void ValidateB(B b1, B b2)
             {
                 if (b1.X != b2.X)
                     throw new InvalidOperationException($"{nameof(A)}[{b1.parent.Id}]=>{nameof(B)}[{b1.Id}].X: {b1.X} vs {b2.X}");
             }
 
-            static void ValidateC(C c1, C c2)
+            void ValidateC(C c1, C c2)
             {
                 if (c1.X != c2.X)
                     throw new InvalidOperationException($"{nameof(A)}[{c1.parent?.Id}]=>{nameof(C)}[{c1.Id}].X: {c1.X} vs {c2.X}");
@@ -190,13 +190,13 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
         }
 
         //TODO Add code-generated DateTime field
-        public sealed record class A(String Id, UInt32 X)
+        public sealed partial record class A(String Id, UInt32 X)
         {
             public Dictionary<String, B> AllB { get; } = [];
             public Dictionary<String, C> AllC { get; } = [];
         }
-        public sealed record class B(String Id, A parent, UInt64 X);
-        public sealed record class C(String Id, A? parent, UInt64 X);
+        public sealed partial record class B(String Id, A parent, UInt64 X);
+        public sealed partial record class C(String Id, A? parent, UInt64 X);
 
     }
 

@@ -12,6 +12,13 @@ using Microsoft.CodeAnalysis.Text;
 using SunSharpUtils.DataStash.Analyzer;
 using SunSharpUtils.Ext.Linq;
 
+//TODO Split the RPC out to a separate library?
+// - 2 libs cause 1 for attribute, 1 for analyzer
+// - Need another common lib for gen utils (SymbolExt)
+// --- Or it could be in just common ext lib, check size increase
+
+//TODO Fix error ids once they are stable
+
 namespace SunSharpUtils.DataStash.Generators;
 
 [Generator]
@@ -55,37 +62,7 @@ internal class CodeGenerator : IIncrementalGenerator
                 var containing_type = (INamedTypeSymbol?)g.Key ?? throw new InvalidOperationException("Containing type is null");
                 var namespace_name = containing_type.ContainingNamespace.IsGlobalNamespace ? null : containing_type.ContainingNamespace.ToDisplayString();
 
-                var is_invalid = false;
-                foreach (var syntax in containing_type.DeclaringSyntaxReferences.Select(r => r.GetSyntax()))
-                {
-                    if (syntax is not ClassDeclarationSyntax class_declaration)
-                    {
-                        context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
-                            id: "DS_RPC001",
-                            title: "Invalid type declaration for rpc",
-                            messageFormat: "Containing type '{0}' needs to be a class",
-                            category: "CodeGenerator",
-                            DiagnosticSeverity.Error,
-                            isEnabledByDefault: true
-                        ), syntax.GetLocation(), containing_type.Name));
-                        is_invalid = true;
-                        continue;
-                    }
-                    if (!class_declaration.Modifiers.Any(SyntaxKind.PartialKeyword))
-                    {
-                        context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
-                            id: "DS_RPC002",
-                            title: "Class must be partial",
-                            messageFormat: "Containing class '{0}' must be declared as partial",
-                            category: "CodeGenerator",
-                            DiagnosticSeverity.Error,
-                            isEnabledByDefault: true
-                        ), class_declaration.GetLocation(), containing_type.Name));
-                        is_invalid = true;
-                        continue;
-                    }
-                }
-                if (is_invalid)
+                if (!containing_type.ValidateAsPartialClass(context, "DS_RPC001", "DS_RPC002"))
                     continue;
 
                 var methods = g.Select(m => new RpcApi.Method
@@ -274,54 +251,35 @@ internal class CodeGenerator : IIncrementalGenerator
                 );
                 return;
             }
-            var is_invalid = false;
-            foreach (var syntax in data_stash_type.DeclaringSyntaxReferences.Select(r => r.GetSyntax()))
-            {
-                if (syntax is not ClassDeclarationSyntax class_declaration)
-                {
-                    context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
-                        id: "DS002",
-                        title: "Invalid type declaration for DataStash",
-                        messageFormat: "DataStash type '{0}' needs to be a class",
-                        category: "CodeGenerator",
-                        DiagnosticSeverity.Error,
-                        isEnabledByDefault: true
-                    ), syntax.GetLocation(), data_stash_type.Name));
-                    is_invalid = true;
-                    continue;
-                }
-                if (!class_declaration.Modifiers.Any(SyntaxKind.PartialKeyword))
-                {
-                    context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
-                        id: "DS003",
-                        title: "Class must be partial",
-                        messageFormat: "DataStash class '{0}' must be declared as partial",
-                        category: "CodeGenerator",
-                        DiagnosticSeverity.Error,
-                        isEnabledByDefault: true
-                    ), class_declaration.GetLocation(), data_stash_type.Name));
-                    is_invalid = true;
-                    continue;
-                }
-                if (data_stash_type.ContainingType is not null)
-                {
-                    context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
-                        id: "DS004",
-                        title: "Unsupported type declaration for data stash",
-                        messageFormat: "DataStash type '{0}' isn't expected to be nested",
-                        category: "CodeGenerator",
-                        DiagnosticSeverity.Error,
-                        isEnabledByDefault: true
-                    ), syntax.GetLocation(), data_stash_type.Name));
-                    is_invalid = true;
-                    continue;
-                }
-            }
-            if (is_invalid)
+            if (!data_stash_type.ValidateAsPartialClass(context, "DS002", "DS003"))
                 return;
+            if (data_stash_type.ContainingType is not null)
+            {
+                data_stash_type.ReportOnAllDeclaringSyntax(
+                    context,
+                    id: "DS004",
+                    title: "Unsupported type declaration for data stash",
+                    messageFormat: "DataStash type '{0}' isn't expected to be nested",
+                    DiagnosticSeverity.Error,
+                    args: [data_stash_type.Name]
+                );
+                return;
+            }
 
             var namespace_name = data_stash_type.ContainingNamespace.IsGlobalNamespace ? null : data_stash_type.ContainingNamespace.ToDisplayString();
             var typed_content_type = data_stash_base_type.TypeArguments.Single();
+            if (!SymbolEqualityComparer.Default.Equals(typed_content_type.ContainingType, data_stash_type))
+            {
+                data_stash_type.ReportOnAllDeclaringSyntax(
+                    context,
+                    id: "DS005",
+                    title: "Invalid declaration of DataStash typed content type",
+                    messageFormat: "DataStash content type '{0}' should be declared nested in its DataStash type '{1}'",
+                    DiagnosticSeverity.Error,
+                    args: [typed_content_type.ToDisplayString(), data_stash_type.ToDisplayString()]
+                );
+                return;
+            }
 
             var file_blocks = new Dictionary<String, (INamedTypeSymbol network_data_type, INamedTypeSymbol file_data_type, INamedTypeSymbol model_type)>();
             var typed_model_parents = new Dictionary<String, INamedTypeSymbol?>();
@@ -331,7 +289,7 @@ internal class CodeGenerator : IIncrementalGenerator
                 {
                     switch (impl_type.Name)
                     {
-                        case nameof(DataStash<>.ITypedContent<>):
+                        case nameof(DataStash<>.ITypedContent<,>):
                             if (core_implemented)
                             {
                                 typed_content_type.ReportOnAllDeclaringSyntax(
@@ -343,6 +301,18 @@ internal class CodeGenerator : IIncrementalGenerator
                                     args: [typed_content_type.Name, impl_type.Name]
                                 );
                             }
+                            if (impl_type.TypeArguments.Length != 2)
+                            {
+                                typed_content_type.ReportOnAllDeclaringSyntax(
+                                    context,
+                                    id: "DS007",
+                                    title: "Unexpected number of type arguments",
+                                    messageFormat: "Typed content type '{0}' implements interface '{1}' with unexpected number of type arguments ({2} instead of {3})",
+                                    DiagnosticSeverity.Error,
+                                    args: [typed_content_type.Name, impl_type.Name, impl_type.TypeArguments.Length, 2]
+                                );
+                                return;
+                            }
                             core_implemented = true;
                             break;
                         case nameof(DataStash<>.ITypedContentWithRootBlock<,,>):
@@ -352,7 +322,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                 typed_content_type.ReportOnAllDeclaringSyntax(
                                     context,
                                     id: "DS007",
-                                    title: "Unexpected number of type arguments for typed content interface",
+                                    title: "Unexpected number of type arguments",
                                     messageFormat: "Typed content type '{0}' implements interface '{1}' with unexpected number of type arguments ({2} instead of {3})",
                                     DiagnosticSeverity.Error,
                                     args: [typed_content_type.Name, impl_type.Name, impl_type.TypeArguments.Length, 3]
@@ -373,7 +343,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                 typed_content_type.ReportOnAllDeclaringSyntax(
                                     context,
                                     id: "DS007",
-                                    title: "Unexpected number of type arguments for typed content interface",
+                                    title: "Unexpected number of type arguments",
                                     messageFormat: "Typed content type '{0}' implements interface '{1}' with unexpected number of type arguments ({2} instead of {3})",
                                     DiagnosticSeverity.Error,
                                     args: [typed_content_type.Name, impl_type.Name, impl_type.TypeArguments.Length, 4]
@@ -402,6 +372,24 @@ internal class CodeGenerator : IIncrementalGenerator
 
                 }
             }
+            foreach (var kv in file_blocks)
+            {
+                var model_type = kv.Value.model_type;
+                if (!model_type.ValidateAsPartialClass(context, "DS006", "DS007"))
+                    return;
+                if (!SymbolEqualityComparer.Default.Equals(model_type.ContainingType, typed_content_type))
+                {
+                    data_stash_type.ReportOnAllDeclaringSyntax(
+                        context,
+                        id: "DS005",
+                        title: "Invalid declaration of DataStash typed content type",
+                        messageFormat: "DataStash content model type '{0}' should be declared nested in its DataStash typed content type '{1}'",
+                        DiagnosticSeverity.Error,
+                        args: [model_type.ToDisplayString(), typed_content_type.ToDisplayString()]
+                    );
+                    return;
+                }
+            }
             var all_parent_model_names = typed_model_parents.Values.OfType<INamedTypeSymbol>().Select(t => t.Name).ToHashSet();
 
             var source_code = CodeSourceGenerator.Gen(gen =>
@@ -421,21 +409,59 @@ internal class CodeGenerator : IIncrementalGenerator
                 {
                     gen += $"";
 
-                    gen += $"protected override void ApplyBlock(BinaryReader br, DateTime record_time, BlockLocation location, {typed_content_type.ToDisplayString()} file_content)";
+                    #region TypedContent
+
+                    gen += $"public sealed partial class {typed_content_type.Name}";
                     gen.AddBlock(gen =>
                     {
-                        //TODO
-                        gen += $"throw new NotImplementedException();";
+                        gen += $"";
+
+                        gen += $"public void ApplyBlock(BinaryReader br, DateTime record_time, BlockLocation location)";
+                        gen.AddBlock(gen =>
+                        {
+                            //TODO
+                            gen += $"throw new NotImplementedException();";
+                        });
+                        gen += $"";
+
+                        gen += $"public void LogSealHeldByBlocks(BlockLocation[] block_locations)";
+                        gen.AddBlock(gen =>
+                        {
+                            //TODO
+                            gen += $"throw new NotImplementedException();";
+                        });
+                        gen += $"";
+
+                        gen += $"public void Resave(Stream stream)";
+                        gen.AddBlock(gen =>
+                        {
+                            //TODO
+                            gen += $"throw new NotImplementedException();";
+                        });
+                        gen += $"";
+
+                        foreach (var kv in file_blocks)
+                        {
+                            var model_type = kv.Value.model_type;
+                            gen.AddLine(gen =>
+                            {
+                                gen *= "public sealed partial ";
+                                if (model_type.IsRecord)
+                                    gen *= "record ";
+                                gen *= "class ";
+                                gen *= model_type.Name;
+                            });
+                            gen.AddBlock(gen =>
+                            {
+                                gen += $"public required DateTime RecordTime {{ get; init; }}";
+                            });
+                            gen += $"";
+                        }
+
                     });
                     gen += $"";
-                    
-                    gen += $"protected override void ResaveContent({typed_content_type.ToDisplayString()} content, Stream stream)";
-                    gen.AddBlock(gen =>
-                    {
-                        //TODO
-                        gen += $"throw new NotImplementedException();";
-                    });
-                    gen += $"";
+
+                    #endregion
 
                     #region ResaveContext
 
@@ -469,8 +495,10 @@ internal class CodeGenerator : IIncrementalGenerator
 
                                 gen.AddLine(gen =>
                                 {
+                                    var (network_data_type, file_data_type, model_type) = file_blocks[model_name];
                                     gen *= "public void AddBlock(";
-                                    var (network_data_type, file_data_type, model_type)= file_blocks[model_name];
+                                    gen *= model_type.ToDisplayString();
+                                    gen *= " model, ";
                                     gen *= file_data_type.ToDisplayString();
                                     gen *= " file_data";
                                     if (all_parent_model_names.Contains(model_name))
@@ -538,6 +566,42 @@ file static class SymbolExt
         Accessibility.Private => "private",
         _ => throw new NotImplementedException($"Unexpected accessibility: {accessibility}")
     };
+
+    public static Boolean ValidateAsPartialClass(this INamedTypeSymbol symbol, SourceProductionContext context, String err_id_not_class, String err_id_not_partial)
+    {
+        var is_valid = true;
+        foreach (var syntax in symbol.DeclaringSyntaxReferences.Select(r => (TypeDeclarationSyntax)r.GetSyntax()))
+        {
+            var is_class = syntax is ClassDeclarationSyntax || syntax is RecordDeclarationSyntax rec && rec.ClassOrStructKeyword.IsKind(SyntaxKind.ClassKeyword);
+            if (!is_class)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
+                    id: err_id_not_class,
+                    title: "Type must be a class",
+                    messageFormat: "Type '{0}' needs to be a class",
+                    category: "CodeGenerator",
+                    DiagnosticSeverity.Error,
+                    isEnabledByDefault: true
+                ), syntax.GetLocation(), symbol.Name));
+                is_valid = false;
+                continue;
+            }
+            if (!syntax.Modifiers.Any(SyntaxKind.PartialKeyword))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(new DiagnosticDescriptor(
+                    id: err_id_not_partial,
+                    title: "Class must be partial",
+                    messageFormat: "Class '{0}' must be partial",
+                    category: "CodeGenerator",
+                    DiagnosticSeverity.Error,
+                    isEnabledByDefault: true
+                ), syntax.GetLocation(), symbol.Name));
+                is_valid = false;
+                continue;
+            }
+        }
+        return is_valid;
+    }
 
     public static void ReportOnAllDeclaringSyntax(this ISymbol symbol, SourceProductionContext context, String id, String title, String messageFormat, DiagnosticSeverity severity, Func<SyntaxNode, Object?[]?>? make_args = null)
     {
