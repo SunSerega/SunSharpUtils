@@ -25,14 +25,12 @@ using SunSharpUtils.WinSvc;
 
 namespace SunSharpUtils.DataStash;
 
-//TODO Things left:
-// - Implementation for some code-generated functions
+//TODO Things left until initial version:
 // - Versioning in universal binary format
 // --- Require block structs to have versioning attribute
 // --- Add versioning to file header
 // - Explicit support for DateTime in binary format (use .ToBinary and .FromBinary)
 // - Add system to mark some blocks as open when created
-// --- RPC method to close one instance of model that is openable
 // --- RPC method to compare list of open models client side to server side (close forgotten blocks and report to client what isn't actually open server side)
 // - Reading data (including both pending and sealed files) per client request
 // - Filling in data from an older format (to upgrade VRCT to use DataStash)
@@ -48,6 +46,11 @@ namespace SunSharpUtils.DataStash;
 
 //TODO Backup files during each consolidation merge
 // - Keep last N merges saved, delete older ones
+
+//TODO How do I version the generated EBlockKind???
+// - I need to somehow hold the memory of all block kinds from prev generations, so that values don't shift
+// - In the first place, I need to decide what to do with blocks that don't exist anymore
+// - I think I want to first find the use case
 
 /// <summary>
 /// Marks data stash implementation for auto-generation of implementation boilerplate
@@ -241,15 +244,16 @@ public abstract class DataStash
         /// <summary>
         /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
         /// </summary>
-        public abstract void ApplyBlock(BinaryReader br, DateTime record_time, DataStash<TSelf>.BlockLocation location);
+        public abstract void ApplyBlock(DataStash<TSelf>.CommonTypedModelInfo common_info, DataStash<TSelf>.ReadContext context);
 
         /// <summary>
         /// Called when sealing is skipped due to open blocks
         /// <para/>
         /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
         /// </summary>
+        /// <param name="file_group_description"></param>
         /// <param name="block_locations"></param>
-        public abstract void LogSealHeldByBlocks(DataStash<TSelf>.BlockLocation[] block_locations);
+        public abstract void LogSealHeldByBlocks(String file_group_description, DataStash<TSelf>.BlockLocation[] block_locations);
 
         internal void Resave(Stream stream) =>
             this.Resave(new DataStash<TSelf>.ResaveContext(stream));
@@ -378,8 +382,8 @@ public abstract class DataStash<TTypedContent> : DataStash
     private static TTypedContent ReadSealedFileContent(String description, FileId file_id, FileStream fs)
     {
         var content = new TTypedContent();
-        foreach (var (br, record_time, location) in ReadFileBlocks(description, fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumers: null))
-            content.ApplyBlock(br, record_time, location);
+        foreach (var (common_info, br) in ReadFileBlocks(description, fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumers: null))
+            content.ApplyBlock(common_info, new(common_info.Location, br));
         return content;
     }
 
@@ -387,11 +391,11 @@ public abstract class DataStash<TTypedContent> : DataStash
     {
         var file_path = Path.Combine(this.root_dir.FullName, $"{file_id}{file_ext}");
         using var fs = File.OpenRead(file_path);
-        foreach (var (br, record_time, location) in ReadFileBlocks($"{file_id}", fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumers: null))
-            content.ApplyBlock(br, record_time, location);
+        foreach (var (common_info, br) in ReadFileBlocks($"{file_id}", fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumers: null))
+            content.ApplyBlock(common_info, new(common_info.Location, br));
     }
 
-    private static IEnumerable<(BinaryReader block_br, DateTime record_time, BlockLocation location)> ReadFileBlocks(
+    private static IEnumerable<(CommonTypedModelInfo common_info, BinaryReader block_br)> ReadFileBlocks(
         String description, Stream stream, Boolean trim_corrupted, Func<BlockId, BlockLocation> location_factory, (Action<BlockId> on_open, Action<BlockId> on_close)? block_open_status_consumers)
     {
         var br = new BinaryReader(stream);
@@ -478,7 +482,8 @@ public abstract class DataStash<TTypedContent> : DataStash
                     on_open.Invoke(block_id);
             }
             var location = location_factory.Invoke(block_id);
-            yield return (block_br, record_time, location);
+            var common_info = new CommonTypedModelInfo { RecordTime = record_time, Location = location };
+            yield return (common_info, block_br);
             if (trim_corrupted)
                 last_valid_stream_pos = stream.Position;
         }
@@ -602,18 +607,21 @@ public abstract class DataStash<TTypedContent> : DataStash
     /// </summary>
     /// <typeparam name="TNetworkData"></typeparam>
     /// <typeparam name="TFileData"></typeparam>
-    /// <typeparam name="TTypedParent"></typeparam>
+    /// <typeparam name="TParentModel"></typeparam>
     /// <typeparam name="TModel"></typeparam>
-    public interface ITypedContentWithChildBlock<TNetworkData, TFileData, TTypedParent, TModel> : ITypedContentWithBlock<TNetworkData, TFileData>
+    public interface ITypedContentWithChildBlock<TNetworkData, TFileData, TParentModel, TModel> : ITypedContentWithBlock<TNetworkData, TFileData>
         where TFileData : struct
-        where TTypedParent : class?
+        where TParentModel : class?
         where TModel : class, ITypedModel<TFileData>
     {
         /// <summary>
         /// </summary>
-        public Boolean TryGetParent(TNetworkData data, [MaybeNullWhen(false)] out TTypedParent? result);
+        public Boolean TryGetModel(BlockLocation location, [MaybeNullWhen(false)] out TParentModel model);
+        /// <summary>
+        /// </summary>
+        public Boolean TryGetParent(TNetworkData data, [MaybeNullWhen(false)] out TParentModel result);
         /// <inheritdoc cref="ITypedContentWithRootBlock{TNetworkData, TFileData, TTyped}.ReadBlock"/>
-        public TModel ReadBlock(CommonTypedModelInfo common_info, TTypedParent parent, TFileData content);
+        public TModel ReadBlock(CommonTypedModelInfo common_info, TParentModel parent, TFileData content);
     }
 
     /// <summary>
@@ -624,6 +632,9 @@ public abstract class DataStash<TTypedContent> : DataStash
     public interface ITypedContentWithCloseableBlock<TNetworkData, TModel>
         where TModel : class
     {
+        /// <summary>
+        /// </summary>
+        public Boolean TryGetModel(BlockLocation location, [MaybeNullWhen(false)] out TModel model);
         /// <summary>
         /// Tries to get a model to close for the given network data
         /// </summary>
@@ -745,11 +756,11 @@ public abstract class DataStash<TTypedContent> : DataStash
 
                     while (inds_with_next.Count != 0)
                     {
-                        var ind = inds_with_next.MinBy(ind => block_enumerators[ind].Current.record_time);
+                        var ind = inds_with_next.MinBy(ind => block_enumerators[ind].Current.common_info.RecordTime);
 
-                        var (block_br, record_time, location) = block_enumerators[ind].Current;
-                        used_ids.Add(location.BlockId);
-                        this.typed_content.ApplyBlock(block_br, record_time, location);
+                        var (common_info, block_br) = block_enumerators[ind].Current;
+                        used_ids.Add(common_info.Location.BlockId);
+                        this.typed_content.ApplyBlock(common_info, new(common_info.Location, block_br));
 
                         if (!block_enumerators[ind].MoveNext())
                             inds_with_next.Remove(ind);
@@ -844,7 +855,7 @@ public abstract class DataStash<TTypedContent> : DataStash
                 var open_blocks = this.open_blocks.ToArray();
                 if (open_blocks.Length != 0)
                 {
-                    this.typed_content.LogSealHeldByBlocks(open_blocks.ToArray(key => new PendingBlockLocation(this, key.index, key.id)));
+                    this.typed_content.LogSealHeldByBlocks($"pending file group {this.id}", open_blocks.ToArray(key => new PendingBlockLocation(this, key.index, key.id)));
                     return false;
                 }
                 this.sealing_started = true;
@@ -988,6 +999,8 @@ public abstract class DataStash<TTypedContent> : DataStash
             this.BlockId = block_id;
         }
 
+        internal abstract BlockLocation WithId(BlockId new_id);
+
         /// <summary>
         /// </summary>
         public abstract TResult AddNewBlock<TCommand, TData, TResult>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Func<TTypedContent, CommonTypedModelInfo, TData, TResult> apply_to_state)
@@ -1020,6 +1033,9 @@ public abstract class DataStash<TTypedContent> : DataStash
         private PendingFileGroup FileGroup { get; } = file_group;
         private Int32 FileIndex { get; } = file_index;
 
+        internal override BlockLocation WithId(BlockId new_id) =>
+            new PendingBlockLocation(this.FileGroup, this.FileIndex, new_id);
+
         public override TResult AddNewBlock<TCommand, TData, TResult>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Func<TTypedContent, CommonTypedModelInfo, TData, TResult> apply_to_state)
         {
             if (!add_parent_ref && this.BlockId != BlockId.NullParent)
@@ -1046,6 +1062,9 @@ public abstract class DataStash<TTypedContent> : DataStash
     {
         private FileId FileId { get; } = file_id;
 
+        internal override BlockLocation WithId(BlockId new_id) =>
+            new SealedBlockLocation(this.FileId, new_id);
+
         public override TResult AddNewBlock<TCommand, TData, TResult>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Func<TTypedContent, CommonTypedModelInfo, TData, TResult> apply_to_state) =>
             throw new InvalidOperationException($"Cannot add new block to {this}");
 
@@ -1064,6 +1083,39 @@ public abstract class DataStash<TTypedContent> : DataStash
     }
 
     #endregion
+
+    /// <summary>
+    /// </summary>
+    public sealed class ReadContext
+    {
+        private readonly BlockLocation location;
+        private readonly BinaryReader br;
+
+        internal ReadContext(BlockLocation location, BinaryReader br)
+        {
+            this.location = location;
+            this.br = br;
+        }
+
+        /// <summary>
+        /// </summary>
+        public TCommand ReadCommand<TCommand>() where TCommand : struct, Enum =>
+            this.br.ReadEnum<TCommand>();
+
+        /// <summary>
+        /// </summary>
+        public BlockLocation ReadParentLocation()
+        {
+            var parent_id = this.br.ReadData<BlockId>();
+            return this.location.WithId(parent_id);
+        }
+
+        /// <summary>
+        /// </summary>
+        public TData ReadFileData<TData>() =>
+            this.br.ReadData<TData>();
+
+    }
 
     /// <summary>
     /// </summary>

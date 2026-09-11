@@ -83,6 +83,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
         , ITypedContentWithChildBlock<NetworkData.AddB, FileData.B, TypedContent.A, TypedContent.B>
         , ITypedContentWithChildBlock<NetworkData.AddC, FileData.C, TypedContent.A?, TypedContent.C>
     {
+        private Dictionary<BlockLocation, A> LocationToA { get; } = [];
         private Dictionary<String, A> AllA { get; } = [];
         private Dictionary<String, C> GlobalC { get; } = [];
         private List<IGlobalContentModel> OrderedChildren { get; } = [];
@@ -105,12 +106,16 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             return this.AllA.TryGetValue(data.ParentId, out result);
         }
 
+        public Boolean TryGetModel(BlockLocation location, [MaybeNullWhen(false)] out A model) =>
+            this.LocationToA.TryGetValue(location, out model);
+
         public static FileData.A ParseNetworkPacket(NetworkData.AddA data) => data.Content;
         public static FileData.B ParseNetworkPacket(NetworkData.AddB data) => data.Content;
         public static FileData.C ParseNetworkPacket(NetworkData.AddC data) => data.Content;
 
         private void AddA(A a)
         {
+            this.LocationToA.Add(a.CommonInfo.Location, a);
             this.AllA.Add(a.Id, a);
             this.OrderedChildren.Add(a);
         }

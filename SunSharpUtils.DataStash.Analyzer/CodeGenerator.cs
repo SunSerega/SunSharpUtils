@@ -424,6 +424,10 @@ internal class CodeGenerator : IIncrementalGenerator
                 gen += $"using System.IO;";
                 gen += $"using System.Diagnostics.CodeAnalysis;";
                 gen += $"";
+                gen += $"using SunSharpUtils;";
+                gen += $"using SunSharpUtils.Ext.Bin;";
+                gen += $"using SunSharpUtils.Ext.Linq;";
+                gen += $"";
 
                 if (namespace_name is { })
                 {
@@ -434,7 +438,7 @@ internal class CodeGenerator : IIncrementalGenerator
                 gen += $"#nullable enable";
                 gen += $"";
 
-                gen += $"file enum EBlockKind";
+                gen += $"file enum EBlockKind : Byte";
                 gen.AddBlock(gen =>
                 {
                     gen += $"Invalid = 0,";
@@ -546,19 +550,66 @@ internal class CodeGenerator : IIncrementalGenerator
                     {
                         gen += $"";
 
-                        gen += $"public void ApplyBlock(BinaryReader br, DateTime record_time, BlockLocation location)";
+                        gen += $"public void ApplyBlock(CommonTypedModelInfo common_info, ReadContext context)";
                         gen.AddBlock(gen =>
                         {
-                            //TODO
-                            gen += $"throw new NotImplementedException();";
+                            gen += $"var command = context.ReadCommand<EBlockKind>();";
+                            gen += $"switch (command)";
+                            gen.AddBlock(gen =>
+                            {
+                                foreach (var (network_data_type, file_data_type, model_type) in file_blocks.Values)
+                                {
+                                    gen += $"case EBlockKind.{model_type.Name}:";
+                                    gen.AddBlock(gen =>
+                                    {
+                                        if (typed_model_parents[model_type.Name] is { } parent_model_type)
+                                        {
+                                            gen += $"var parent_location = context.ReadParentLocation();";
+                                            gen += $"if (!this.TryGetModel(parent_location, out {parent_model_type.Name}? parent))";
+                                            gen.AddTab(gen =>
+                                            {
+                                                gen += $"throw new InvalidOperationException($\"Parent {parent_model_type.Name} not found at {{parent_location}} when reading child {model_type.Name} at {{common_info.Location}}\");";
+                                            });
+                                        }
+                                        gen += $"var file_data = context.ReadFileData<{file_data_type.ToDisplayString()}>();";
+                                        gen.AddLine(gen =>
+                                        {
+                                            gen *= "this.ReadBlock(common_info, ";
+                                            if (typed_model_parents[model_type.Name] is { })
+                                                gen *= "parent, ";
+                                            gen *= "file_data);";
+                                        });
+                                        gen += $"break;";
+                                    });
+                                }
+                                gen += $"default:";
+                                gen.AddTab(gen =>
+                                {
+                                    gen += $"throw new InvalidDataException($\"Invalid block kind: {{command}}\");";
+                                });
+                            });
                         });
                         gen += $"";
 
-                        gen += $"public void LogSealHeldByBlocks(BlockLocation[] block_locations)";
+                        gen += $"public void LogSealHeldByBlocks(String file_group_description, BlockLocation[] block_locations)";
                         gen.AddBlock(gen =>
                         {
-                            //TODO
-                            gen += $"throw new NotImplementedException();";
+                            gen += $"var models = block_locations.ToArray(GetModelByLocation);";
+                            gen += $"Prompt.Notify($\"{{models.Length}} models are preventing sealing of {{file_group_description}}: {{models.JoinToString(\"; \")}}\");";
+                            gen += $"";
+                            gen += $"Object GetModelByLocation(BlockLocation location)";
+                            gen.AddBlock(gen =>
+                            {
+                                foreach (var model_name in closable_typed_models.Keys)
+                                {
+                                    gen += $"if (this.TryGetModel(location, out {model_name}? model_{model_name}))";
+                                    gen.AddTab(gen =>
+                                    {
+                                        gen += $"return model_{model_name};";
+                                    });
+                                }
+                                gen += $"throw new InvalidOperationException($\"No closable model found at {{location}}\");";
+                            });
                         });
                         gen += $"";
 
