@@ -237,7 +237,7 @@ internal class CodeGenerator : IIncrementalGenerator
         var data_stash_types = context.SyntaxProvider.ForAttributeWithMetadataName(
             typeof(AutoDataStashAttribute).FullName!,
             (node, _) => true,
-            (context, _) => (type: (INamedTypeSymbol)context.TargetSymbol, attrib: context.Attributes.Single(a=>a.AttributeClass!.Name == nameof(AutoDataStashAttribute)))
+            (context, _) => (type: (INamedTypeSymbol)context.TargetSymbol, attrib: context.Attributes.Single(a => a.AttributeClass!.Name == nameof(AutoDataStashAttribute)))
         );
         context.RegisterSourceOutput(data_stash_types, (context, gen_item) =>
         {
@@ -286,6 +286,7 @@ internal class CodeGenerator : IIncrementalGenerator
 
             var file_blocks = new Dictionary<String, (INamedTypeSymbol network_data_type, INamedTypeSymbol file_data_type, INamedTypeSymbol model_type)>();
             var typed_model_parents = new Dictionary<String, INamedTypeSymbol?>();
+            var closable_typed_models = new Dictionary<String, (INamedTypeSymbol network_data_type, INamedTypeSymbol model_type)>();
             {
                 var core_implemented = false;
                 foreach (var impl_type in typed_content_type.Interfaces)
@@ -361,6 +362,25 @@ internal class CodeGenerator : IIncrementalGenerator
                             typed_model_parents.Add(model_type.Name, parent_model_type);
                             break;
                         }
+                        case nameof(DataStash<>.ITypedContentWithCloseableBlock<,>):
+                        {
+                            if (impl_type.TypeArguments.Length != 2)
+                            {
+                                typed_content_type.ReportOnAllDeclaringSyntax(
+                                    context,
+                                    id: "DS007",
+                                    title: "Unexpected number of type arguments",
+                                    messageFormat: "Typed content type '{0}' implements interface '{1}' with unexpected number of type arguments ({2} instead of {3})",
+                                    DiagnosticSeverity.Error,
+                                    args: [typed_content_type.Name, impl_type.Name, impl_type.TypeArguments.Length, 2]
+                                );
+                                continue;
+                            }
+                            var network_data_type = (INamedTypeSymbol)impl_type.TypeArguments[0];
+                            var model_type = (INamedTypeSymbol)impl_type.TypeArguments[1];
+                            closable_typed_models.Add(model_type.Name, (network_data_type, model_type));
+                            break;
+                        }
                         default:
                             typed_content_type.ReportOnAllDeclaringSyntax(
                                 context,
@@ -393,12 +413,16 @@ internal class CodeGenerator : IIncrementalGenerator
                     return;
                 }
             }
-            var all_parent_model_names = typed_model_parents.Values.OfType<INamedTypeSymbol>().Select(t => t.Name).ToHashSet();
+            var all_parent_model_names = typed_model_parents.Values
+                .OfType<INamedTypeSymbol>()
+                .Select(t => t.Name)
+                .ToHashSet();
 
             var source_code = CodeSourceGenerator.Gen(gen =>
             {
                 gen += $"using System;";
                 gen += $"using System.IO;";
+                gen += $"using System.Diagnostics.CodeAnalysis;";
                 gen += $"";
 
                 if (namespace_name is { })
@@ -426,6 +450,94 @@ internal class CodeGenerator : IIncrementalGenerator
                 gen.AddBlock(gen =>
                 {
                     gen += $"";
+
+                    #region Network methods
+
+                    foreach (var (network_data_type, file_data_type, model_type) in file_blocks.Values)
+                    {
+                        gen += $"public {model_type.ToDisplayString()} {network_data_type.Name}({network_data_type.ToDisplayString()} network_data)";
+                        gen.AddBlock(gen =>
+                        {
+                            if (typed_model_parents[model_type.Name] is { } parent_model_type)
+                            {
+                                var parent_can_be_null = parent_model_type.NullableAnnotation.HasFlag(NullableAnnotation.Annotated);
+                                gen += $"var parent = this.GetFromPendingContent<{parent_model_type.ToDisplayString()}>((content, [MaybeNullWhen(false)] out result) => content.TryGetParent(network_data, out result){(parent_can_be_null ? ", on_not_found: () => null" : null)});";
+                                if (parent_can_be_null)
+                                {
+                                    gen += $"if (parent is {{ }})";
+                                    gen.AddBlock(gen =>
+                                    {
+                                        gen += $"var location = parent.CommonInfo.Location;";
+                                        GenInvokeAddNewBlock(gen, has_parent: true, can_have_parent: true);
+                                    });
+                                    gen += $"else";
+                                    gen.AddBlock(gen =>
+                                    {
+                                        gen += $"return this.UseNewWriteLocation(location =>";
+                                        gen.AddBlock(gen => GenInvokeAddNewBlock(gen, has_parent: false, can_have_parent: true), "{", "});");
+                                    });
+                                }
+                                else
+                                {
+                                    gen += $"var location = parent.CommonInfo.Location;";
+                                    GenInvokeAddNewBlock(gen, has_parent: true, can_have_parent: true);
+                                }
+                            }
+                            else
+                            {
+                                gen += $"return this.UseNewWriteLocation(location =>";
+                                gen.AddBlock(gen => GenInvokeAddNewBlock(gen, has_parent: false, can_have_parent: false), "{", "});");
+                            }
+
+                            void GenInvokeAddNewBlock(CodeSourceGenerator gen, Boolean has_parent, Boolean can_have_parent)
+                            {
+                                gen += $"return location.AddNewBlock(";
+                                gen.AddTab(gen =>
+                                {
+                                    var hold_open = closable_typed_models.ContainsKey(model_type.Name);
+                                    gen.AddLine(gen =>
+                                    {
+                                        gen *= "hold_open: ";
+                                        gen *= hold_open.ToString().ToLower();
+                                        gen *= ", EBlockKind.";
+                                        gen *= model_type.Name;
+                                        gen *= ", add_parent_ref: ";
+                                        gen *= has_parent.ToString().ToLower();
+                                        gen *= ", ";
+                                        gen *= typed_content_type.Name;
+                                        gen *= ".ParseNetworkPacket(network_data),";
+                                    });
+                                    gen.AddLine(gen =>
+                                    {
+                                        gen *= "(content, common_info, file_data) => content.ReadBlock(common_info, ";
+                                        if (can_have_parent)
+                                        {
+                                            gen *= "parent";
+                                            if (!has_parent)
+                                                gen *= ": null";
+                                            gen *= ", ";
+                                        }
+                                        gen *= "file_data)";
+                                    });
+                                });
+                                gen += $");";
+                            }
+                        });
+                        gen += $"";
+                    }
+
+                    foreach (var (network_data_type, model_type) in closable_typed_models.Values)
+                    {
+                        gen += $"public void {network_data_type.Name}({network_data_type.ToDisplayString()} network_data)";
+                        gen.AddBlock(gen =>
+                        {
+                            gen += $"var model = this.GetFromPendingContent<{model_type.ToDisplayString()}>((content, [MaybeNullWhen(false)] out result) => content.TryGetOpenModel(network_data, out result));";
+                            gen += $"model.CommonInfo.Location.CloseBlock();";
+                        });
+                        gen += $"";
+                    }
+
+                    #endregion
 
                     #region TypedContent
 

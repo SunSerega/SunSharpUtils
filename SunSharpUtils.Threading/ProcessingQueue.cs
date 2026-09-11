@@ -140,7 +140,7 @@ public sealed class ProcessingQueue<T>() : IEnumerable<T>
 
     IEnumerator<T> IEnumerable<T>.GetEnumerator() => this.items.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => this.items.GetEnumerator();
-    
+
     /// <summary>
     /// </summary>
     public override String ToString() =>

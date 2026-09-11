@@ -27,8 +27,6 @@ namespace SunSharpUtils.DataStash;
 
 //TODO Things left:
 // - Implementation for some code-generated functions
-// --- The whole thing with parent-child references is not even touched yet
-// --- Catch SealingStartedException and retry choosing write location
 // - Versioning in universal binary format
 // --- Require block structs to have versioning attribute
 // --- Add versioning to file header
@@ -311,6 +309,8 @@ public abstract class DataStash<TTypedContent> : DataStash
 
     private readonly OneToManyLock l_all_sealed_state_files = new();
     private readonly List<FileId> all_sealed_state_files;
+
+    private readonly OneToManyLock l_all_pending_state_files = new();
     private readonly ConcurrentDictionary<FileId, PendingFileGroup> all_pending_state_files = [];
 
     private readonly PendingSealer pending_sealer;
@@ -378,7 +378,7 @@ public abstract class DataStash<TTypedContent> : DataStash
     private static TTypedContent ReadSealedFileContent(String description, FileId file_id, FileStream fs)
     {
         var content = new TTypedContent();
-        foreach (var (br, record_time, location) in ReadFileBlocks(description, fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumer: null))
+        foreach (var (br, record_time, location) in ReadFileBlocks(description, fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumers: null))
             content.ApplyBlock(br, record_time, location);
         return content;
     }
@@ -387,12 +387,12 @@ public abstract class DataStash<TTypedContent> : DataStash
     {
         var file_path = Path.Combine(this.root_dir.FullName, $"{file_id}{file_ext}");
         using var fs = File.OpenRead(file_path);
-        foreach (var (br, record_time, location) in ReadFileBlocks($"{file_id}", fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumer: null))
+        foreach (var (br, record_time, location) in ReadFileBlocks($"{file_id}", fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumers: null))
             content.ApplyBlock(br, record_time, location);
     }
 
     private static IEnumerable<(BinaryReader block_br, DateTime record_time, BlockLocation location)> ReadFileBlocks(
-        String description, Stream stream, Boolean trim_corrupted, Func<BlockId, BlockLocation> location_factory, Action<BlockId, Int32>? block_open_status_consumer)
+        String description, Stream stream, Boolean trim_corrupted, Func<BlockId, BlockLocation> location_factory, (Action<BlockId> on_open, Action<BlockId> on_close)? block_open_status_consumers)
     {
         var br = new BinaryReader(stream);
 
@@ -440,7 +440,7 @@ public abstract class DataStash<TTypedContent> : DataStash
         while (true)
         {
             first_read_in_block = true;
-            if (block_open_status_consumer is not null)
+            if (block_open_status_consumers is { on_close: var on_close })
             {
                 if (!TryRead("kind of the next block", sizeof(EBlockKind), br => br.ReadEnum<EBlockKind>(), out var kind))
                     yield break;
@@ -451,7 +451,7 @@ public abstract class DataStash<TTypedContent> : DataStash
                     case EBlockKind.Close:
                         if (!TryRead("id of the block being closed", Marshal.SizeOf<BlockId>(), br => br.ReadData<BlockId>(), out var closed_block_id))
                             yield break;
-                        block_open_status_consumer.Invoke(closed_block_id, -1);
+                        on_close.Invoke(closed_block_id);
                         break;
                     default:
                         throw new InvalidDataException($"File {description} corrupted: Invalid block kind: {kind}");
@@ -471,28 +471,51 @@ public abstract class DataStash<TTypedContent> : DataStash
             var block_br = new BinaryReader(block_stream);
             var record_time = block_br.ReadData<DateTime>();
             var block_id = block_br.ReadData<BlockId>();
-            if (block_open_status_consumer is not null)
+            if (block_open_status_consumers is { on_open: var on_open })
             {
                 var hold_open = block_br.ReadBoolean();
                 if (hold_open)
-                    block_open_status_consumer.Invoke(block_id, +1);
+                    on_open.Invoke(block_id);
             }
             var location = location_factory.Invoke(block_id);
             yield return (block_br, record_time, location);
             if (trim_corrupted)
                 last_valid_stream_pos = stream.Position;
         }
-        
+
     }
 
     /// <summary>
     /// </summary>
-    protected BlockLocation ChooseWriteLocation()
+    protected T UseNewWriteLocation<T>(Func<BlockLocation, T> use) => this.l_all_pending_state_files.ManyLocked(() =>
     {
         var file_id = FileId.Current;
         var pending_file_group = this.all_pending_state_files.GetOrAdd(file_id, id => new PendingFileGroup(this, this.pending_dir.CreateSubdirectory(id.ToString()), this.svc_stop_token));
-        return pending_file_group.ChooseWriteLocation();
-    }
+        var location = pending_file_group.ChooseWriteLocation();
+        return use.Invoke(location);
+    });
+
+    /// <summary>
+    /// </summary>
+    protected delegate Boolean GetFromPendingContentCallback<T>(TTypedContent content, [MaybeNullWhen(false)] out T result);
+    /// <summary>
+    /// </summary>
+    protected T GetFromPendingContent<T>(GetFromPendingContentCallback<T> try_get, Func<T>? on_not_found = null) => this.l_all_pending_state_files.ManyLocked(() =>
+    {
+        var results = new List<(FileId file_id, T ret)>(1);
+        foreach (var pending_file_group in this.all_pending_state_files.Values)
+        {
+            if (try_get.Invoke(pending_file_group.Content, out var result))
+                results.Add((pending_file_group.Id, result));
+        }
+        on_not_found ??= () =>
+            throw new InvalidOperationException($"Value of type {typeof(T)} not found in pending files");
+        if (results.Count == 0)
+            return on_not_found.Invoke();
+        if (results.Count > 1)
+            throw new InvalidOperationException($"Value of type {typeof(T)} found in multiple pending files: {results.Select(r => r.file_id).JoinToString("; ")}");
+        return results[0].ret;
+    });
 
     /// <summary>
     /// </summary>
@@ -540,51 +563,71 @@ public abstract class DataStash<TTypedContent> : DataStash
     }
 
     /// <summary>
-    /// Implement by typed file content type to add TData block with no parent relationship
     /// </summary>
-    /// <typeparam name="TNetworkData"></typeparam>
-    /// <typeparam name="TFileData"></typeparam>
-    /// <typeparam name="TTyped"></typeparam>
-    public interface ITypedContentWithRootBlock<TNetworkData, TFileData, TTyped>
-        where TNetworkData : struct
+    public interface ITypedContentWithBlock<TNetworkData, TFileData>
         where TFileData : struct
-        where TTyped : class, ITypedModel<TFileData>
     {
         /// <summary>
         /// Turns network data into file data
         /// <para/>
-        /// The result will be written to file and immediately passed to <see cref="ReadBlock"/>
+        /// The result will be written to file and immediately passed to ReadBlock
         /// </summary>
         /// <param name="data"></param>
         /// <returns></returns>
-        public TFileData ParseNetworkPacket(TNetworkData data);
+        public static abstract TFileData ParseNetworkPacket(TNetworkData data);
+    }
+
+    /// <summary>
+    /// Implement by typed file content type to add block type with no parent relationship
+    /// </summary>
+    /// <typeparam name="TNetworkData"></typeparam>
+    /// <typeparam name="TFileData"></typeparam>
+    /// <typeparam name="TModel"></typeparam>
+    public interface ITypedContentWithRootBlock<TNetworkData, TFileData, TModel> : ITypedContentWithBlock<TNetworkData, TFileData>
+        where TFileData : struct
+        where TModel : class, ITypedModel<TFileData>
+    {
         /// <summary>
         /// Adds block's content from file to this instance, and returns newly created representation of this block
         /// </summary>
         /// <param name="common_info"></param>
         /// <param name="content"></param>
         /// <returns></returns>
-        public TTyped ReadBlock(CommonTypedModelInfo common_info, TFileData content);
+        public TModel ReadBlock(CommonTypedModelInfo common_info, TFileData content);
     }
     /// <summary>
-    /// Implement by typed file content type to add TData block with a parent
+    /// Implement by typed file content type to add block type with a parent
     /// <para/>
     /// This block being a child doesn't stop another block from being child of this block
     /// </summary>
     /// <typeparam name="TNetworkData"></typeparam>
     /// <typeparam name="TFileData"></typeparam>
     /// <typeparam name="TTypedParent"></typeparam>
-    /// <typeparam name="TTyped"></typeparam>
-    public interface ITypedContentWithChildBlock<TNetworkData, TFileData, TTypedParent, TTyped>
-        where TNetworkData : struct
+    /// <typeparam name="TModel"></typeparam>
+    public interface ITypedContentWithChildBlock<TNetworkData, TFileData, TTypedParent, TModel> : ITypedContentWithBlock<TNetworkData, TFileData>
         where TFileData : struct
         where TTypedParent : class?
-        where TTyped : class, ITypedModel<TFileData>
+        where TModel : class, ITypedModel<TFileData>
     {
-        /// <inheritdoc cref="ITypedContentWithRootBlock{TNetworkData, TFileData, TTyped}.ParseNetworkPacket(TNetworkData)"/>
-        public TFileData ParseNetworkPacket(TNetworkData data, out TTypedParent found_parent);
+        /// <summary>
+        /// </summary>
+        public Boolean TryGetParent(TNetworkData data, [MaybeNullWhen(false)] out TTypedParent? result);
         /// <inheritdoc cref="ITypedContentWithRootBlock{TNetworkData, TFileData, TTyped}.ReadBlock"/>
-        public TTyped ReadBlock(CommonTypedModelInfo common_info, TTypedParent parent, TFileData content);
+        public TModel ReadBlock(CommonTypedModelInfo common_info, TTypedParent parent, TFileData content);
+    }
+
+    /// <summary>
+    /// Implemented by typed file content type to mark a model as openable (open when created, closed through an explicit call)
+    /// </summary>
+    /// <typeparam name="TNetworkData"></typeparam>
+    /// <typeparam name="TModel"></typeparam>
+    public interface ITypedContentWithCloseableBlock<TNetworkData, TModel>
+        where TModel : class
+    {
+        /// <summary>
+        /// Tries to get a model to close for the given network data
+        /// </summary>
+        public Boolean TryGetOpenModel(TNetworkData data, [MaybeNullWhen(false)] out TModel result);
     }
 
     #endregion
@@ -642,6 +685,7 @@ public abstract class DataStash<TTypedContent> : DataStash
         private readonly CancellationTokenSource write_cts;
         private readonly List<ProcessingQueue<Action<BinaryWriter>>> writers = [];
 
+        private readonly Lock l_typed_content = new();
         private readonly TTypedContent typed_content = new();
 
         private readonly Lock l_sealing = new();
@@ -682,18 +726,19 @@ public abstract class DataStash<TTypedContent> : DataStash
                             file.fs,
                             trim_corrupted: true,
                             id => new PendingBlockLocation(this, file.ind, id),
-                            (id, bl_open_diff) =>
-                            {
-                                var key = (file.ind, id);
-                                var old_open_count = this.open_blocks.Contains(key) ? 1 : 0;
-                                var new_open_count = old_open_count + bl_open_diff;
-                                if (!new_open_count.InRange(0, 1))
-                                    throw new InvalidOperationException($"Pending state {this.id} is corrupted: Block {id} in file {file.ind} has open count {new_open_count}");
-                                if (new_open_count == 1)
-                                    this.open_blocks.Add(key);
-                                else
-                                    this.open_blocks.Remove(key);
-                            }
+                            block_open_status_consumers:
+                            (
+                                on_open: id =>
+                                {
+                                    if (!this.open_blocks.Add((file.ind, id)))
+                                        throw new InvalidOperationException($"Pending state {this.id} is corrupted: Block {id} in file {file.ind} is already open");
+                                },
+                                on_close: id =>
+                                {
+                                    if (!this.open_blocks.Remove((file.ind, id)))
+                                        throw new InvalidOperationException($"Pending state {this.id} is corrupted: Block {id} in file {file.ind} is not open");
+                                }
+                            )
                         ).GetEnumerator();
                     });
                     var inds_with_next = Enumerable.Range(0, this.file_count).Where(ind => block_enumerators[ind].MoveNext()).ToList();
@@ -724,6 +769,7 @@ public abstract class DataStash<TTypedContent> : DataStash
         }
 
         public FileId Id => this.id;
+        public TTypedContent Content => this.typed_content;
 
         public BlockLocation ChooseWriteLocation()
         {
@@ -731,17 +777,20 @@ public abstract class DataStash<TTypedContent> : DataStash
             return new PendingBlockLocation(this, ind, BlockId.NullParent);
         }
 
-        public PendingBlockLocation AddNewBlock<TCommand, TData>(Boolean hold_open, Int32 Index, TCommand command, BlockId? parent_block_id, TData data, Action<TTypedContent, TData> apply_to_state)
+        public TResult AddNewBlock<TCommand, TData, TResult>(Boolean hold_open, Int32 Index, TCommand command, BlockId? parent_block_id, TData data, Func<TTypedContent, CommonTypedModelInfo, TData, TResult> apply_to_state)
             where TCommand : struct, Enum
             where TData : struct
         {
+            // Everything starting with deciding record_time needs to be locked, to ensure data is added to this.typed_content in the same order as timestamps
+            using var lock_scope = this.l_typed_content.EnterScope();
+
             var record_time = DateTime.UtcNow;
             var new_id = this.block_id_allocator.AllocateId();
 
             lock (this.l_sealing)
             {
                 if (this.sealing_started)
-                    throw new SealingStartedException();
+                    throw new InvalidOperationException($"Pending state {this.id} is already being sealed, cannot add new block {new_id}. A lock should have prevented this");
                 if (hold_open)
                 {
                     if (!this.open_blocks.Add((Index, new_id)))
@@ -768,12 +817,13 @@ public abstract class DataStash<TTypedContent> : DataStash
                 });
             }
 
-            apply_to_state.Invoke(this.typed_content, data);
+            var location = new PendingBlockLocation(this, Index, new_id);
+            var result = apply_to_state.Invoke(this.typed_content, new CommonTypedModelInfo { Location = location, RecordTime = record_time }, data);
 
-            return new PendingBlockLocation(this, Index, new_id);
+            return result;
         }
 
-        public void ReportBlockClosed(Int32 Index, BlockId block_id)
+        public void CloseBlock(Int32 Index, BlockId block_id)
         {
             if (!this.l_sealing.LockedGet(() => this.open_blocks.Remove((Index, block_id))))
                 throw new InvalidOperationException($"Pending state {this.id} is corrupted: Block {block_id} in file {Index} was not open");
@@ -892,8 +942,6 @@ public abstract class DataStash<TTypedContent> : DataStash
             });
         }
 
-        public sealed class SealingStartedException : Exception;
-
     }
 
     private readonly struct FileHeader()
@@ -942,8 +990,12 @@ public abstract class DataStash<TTypedContent> : DataStash
 
         /// <summary>
         /// </summary>
-        public abstract BlockLocation AddNewBlock<TCommand, TData>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Action<TTypedContent, TData> apply_to_state)
+        public abstract TResult AddNewBlock<TCommand, TData, TResult>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Func<TTypedContent, CommonTypedModelInfo, TData, TResult> apply_to_state)
             where TCommand : struct, Enum where TData : struct;
+
+        /// <summary>
+        /// </summary>
+        public abstract void CloseBlock();
 
         /// <summary>
         /// </summary>
@@ -968,12 +1020,15 @@ public abstract class DataStash<TTypedContent> : DataStash
         private PendingFileGroup FileGroup { get; } = file_group;
         private Int32 FileIndex { get; } = file_index;
 
-        public override BlockLocation AddNewBlock<TCommand, TData>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Action<TTypedContent, TData> apply_to_state)
+        public override TResult AddNewBlock<TCommand, TData, TResult>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Func<TTypedContent, CommonTypedModelInfo, TData, TResult> apply_to_state)
         {
             if (!add_parent_ref && this.BlockId != BlockId.NullParent)
                 throw new InvalidOperationException($"Explicit location should not be used when adding a new block without a parent reference. Use ChooseWriteLocation to get a new location");
             return this.FileGroup.AddNewBlock(hold_open, this.FileIndex, command, add_parent_ref ? this.BlockId : null, data, apply_to_state);
         }
+
+        public override void CloseBlock() =>
+            this.FileGroup.CloseBlock(this.FileIndex, this.BlockId);
 
         public override Boolean Equals(BlockLocation? other) =>
             other is PendingBlockLocation other_pending &&
@@ -991,8 +1046,11 @@ public abstract class DataStash<TTypedContent> : DataStash
     {
         private FileId FileId { get; } = file_id;
 
-        public override BlockLocation AddNewBlock<TCommand, TData>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Action<TTypedContent, TData> apply_to_state) =>
+        public override TResult AddNewBlock<TCommand, TData, TResult>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Func<TTypedContent, CommonTypedModelInfo, TData, TResult> apply_to_state) =>
             throw new InvalidOperationException($"Cannot add new block to {this}");
+
+        public override void CloseBlock() =>
+            throw new InvalidOperationException($"Cannot close block in {this}");
 
         public override Boolean Equals(BlockLocation? other) =>
             other is SealedBlockLocation other_sealed &&
@@ -1012,6 +1070,7 @@ public abstract class DataStash<TTypedContent> : DataStash
     public sealed class ResaveContext
     {
         private readonly BinaryWriter bw;
+        private DateTime last_record_time = DateTime.MinValue;
 
         internal ResaveContext(Stream stream)
         {
@@ -1024,6 +1083,10 @@ public abstract class DataStash<TTypedContent> : DataStash
             where TCommand : struct, Enum
             where TFileData : struct
         {
+            if (common_info.RecordTime < this.last_record_time)
+                throw new InvalidOperationException($"Cannot write block with record time {common_info.RecordTime} before last written record time {this.last_record_time}");
+            this.last_record_time = common_info.RecordTime;
+
             var pos1 = this.bw.BaseStream.Position;
             this.bw.Write(-1); // block len placeholder
             this.bw.WriteData(common_info.RecordTime);
@@ -1036,7 +1099,7 @@ public abstract class DataStash<TTypedContent> : DataStash
             this.bw.BaseStream.Position = pos1;
             this.bw.Write(checked((Int32)(pos2 - pos1)));
             this.bw.BaseStream.Position = pos2;
-            this.bw.Flush();
+            //this.bw.Flush(); // Don't flush in the middle of resave, because whole resave is an atomic operation
         }
 
     }
@@ -1062,30 +1125,33 @@ public abstract class DataStash<TTypedContent> : DataStash
                             svc_stop_token.WaitHandle.WaitOne(wait_time);
                             continue;
                         }
-                        
+
                         var current_file_id = FileId.Current;
                         var need_sealing = this.data_stash.all_pending_state_files.Keys.Where(id => id.CompareTo(current_file_id) < 0).ToList();
                         var need_sealing_count = need_sealing.Count;
 
                         if (need_sealing_count != 0)
                         {
-                            Prompt.Notify($"{this.data_stash}: Attempting to seal {need_sealing_count} pending states: {need_sealing.JoinToString()}");
-                            var sealed_count = need_sealing.RemoveAll(file_id =>
+                            this.data_stash.l_all_pending_state_files.OneLocked(() =>
                             {
-                                var pending_file_group = this.data_stash.all_pending_state_files[file_id];
-                                if (!pending_file_group.TrySeal())
-                                    return false;
+                                Prompt.Notify($"{this.data_stash}: Attempting to seal {need_sealing_count} pending states: {need_sealing.JoinToString()}");
+                                var sealed_count = need_sealing.RemoveAll(file_id =>
+                                {
+                                    var pending_file_group = this.data_stash.all_pending_state_files[file_id];
+                                    if (!pending_file_group.TrySeal())
+                                        return false;
 
-                                if (!this.data_stash.all_pending_state_files.Remove(file_id, out _))
-                                    // Can't throw out of .RemoveAll, it leaves inconsistent state
-                                    Prompt.Notify($"{this.data_stash}: Failed to remove pending state file {file_id}");
+                                    if (!this.data_stash.all_pending_state_files.Remove(file_id, out _))
+                                        // Can't throw out of .RemoveAll, it leaves inconsistent state
+                                        Prompt.Notify($"{this.data_stash}: Failed to remove pending state file {file_id}");
 
-                                // New sealed file has been added, need to reset consolidation schedule
-                                this.data_stash.sealed_consolidator.RecomputeNextMergeTime();
+                                    // New sealed file has been added, need to reset consolidation schedule
+                                    this.data_stash.sealed_consolidator.RecomputeNextMergeTime();
 
-                                return true;
-                            });
-                            Prompt.Notify($"{this.data_stash}: Sealed {sealed_count}/{need_sealing_count} pending states");
+                                    return true;
+                                });
+                                Prompt.Notify($"{this.data_stash}: Sealed {sealed_count}/{need_sealing_count} pending states");
+                            }, with_priority: false);
                         }
 
                         next_sealing_attempt = new DateTime(DateOnly.FromDateTime(now), new TimeOnly(now.Hour, minute: 5), DateTimeKind.Utc).AddHours(1);
