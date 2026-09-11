@@ -76,7 +76,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
     //TODO This content is not thread safe
     // - But internals of DataStash (like choosing a block location) are thread-safe
     // - I think I need locks in code-generated implementation
-    public sealed partial class TypedContent : ITypedContent<TypedContent, ResaveContext>
+    public sealed partial class TypedContent : ITypedContent<TypedContent, TypedResaveContext>
         , ITypedContentWithRootBlock<NetworkData.A, FileData.A, TypedContent.A>
         , ITypedContentWithChildBlock<NetworkData.B, FileData.B, TypedContent.A, TypedContent.B>
         , ITypedContentWithChildBlock<NetworkData.C, FileData.C, TypedContent.A?, TypedContent.C>
@@ -100,103 +100,128 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             return data.Content;
         }
 
-        public A ReadBlock(DateTime record_time, FileData.A content)
+        public A ReadBlock(CommonTypedModelInfo common_info, FileData.A content)
         {
-            var res = new A(content.Id, content.X) { RecordTime = record_time };
+            var res = new A
+            {
+                CommonInfo = common_info,
+                Id = content.Id,
+                X = content.X,
+            };
             this.AllA.Add(content.Id, res);
             return res;
         }
 
-        public B ReadBlock(DateTime record_time, A parent, FileData.B content)
+        public B ReadBlock(CommonTypedModelInfo common_info, A parent, FileData.B content)
         {
-            var res = new B(content.Id, parent, content.X) { RecordTime = record_time };
+            var res = new B
+            {
+                CommonInfo = common_info,
+                Parent = parent,
+                Id = content.Id,
+                X = content.X,
+            };
             parent.AllB.Add(content.Id, res);
             return res;
         }
 
-        public C ReadBlock(DateTime record_time, A? parent, FileData.C content)
+        public C ReadBlock(CommonTypedModelInfo common_info, A? parent, FileData.C content)
         {
-            var res = new C(content.Id, parent, content.X) { RecordTime = record_time };
+            var res = new C
+            {
+                CommonInfo = common_info,
+                Parent = parent,
+                Id = content.Id,
+                X = content.X,
+            };
             (parent?.AllC ?? this.GlobalC).Add(content.Id, res);
             return res;
         }
 
-        void ITypedContent<TypedContent, ResaveContext>.Resave(ResaveContext context)
+        public void Resave(TypedResaveContext context)
         {
             foreach (var a in this.AllA.Values)
             {
-                var file_data = new FileData.A
-                {
-                    Id = a.Id,
-                    X = a.X,
-                };
-                context.AddBlock(a, file_data, context =>
+                context.AddBlock(a, context =>
                 {
                     foreach (var b in a.AllB.Values)
-                    {
-                        var file_data = new FileData.B
-                        {
-                            Id = b.Id,
-                            X = b.X,
-                        };
-                        context.AddBlock(b, file_data);
-                    }
+                        context.AddBlock(b);
                     foreach (var c in a.AllC.Values)
-                    {
-                        var file_data = new FileData.C
-                        {
-                            Id = c.Id,
-                            X = c.X,
-                        };
-                        context.AddBlock(c, file_data);
-                    }
+                        context.AddBlock(c);
                 });
             }
             foreach (var c in this.GlobalC.Values)
-            {
-                var file_data = new FileData.C
-                {
-                    Id = c.Id,
-                    X = c.X,
-                };
-                context.AddBlock(c, file_data);
-            }
+                context.AddBlock(c);
         }
 
         public static void ValidateEqual(TypedContent content1, TypedContent content2)
         {
-            ITypedContent<TypedContent>.ValidateDictEqual(content1.AllA, content2.AllA, ValidateA);
-            ITypedContent<TypedContent>.ValidateDictEqual(content1.GlobalC, content2.GlobalC, ValidateC);
+            ITypedContent<TypedContent>.ValidateDictEqual("AllA", content1.AllA, content2.AllA, ValidateA);
+            ITypedContent<TypedContent>.ValidateDictEqual("GlobalC", content1.GlobalC, content2.GlobalC, ValidateC);
 
-            void ValidateA(A a1, A a2)
+            void ValidateA(String path_description, A a1, A a2)
             {
                 if (a1.X != a2.X)
-                    throw new InvalidOperationException($"{nameof(A)}[{a1.Id}].X: {a1.X} vs {a2.X}");
-                ITypedContent<TypedContent>.ValidateDictEqual(a1.AllB, a2.AllB, ValidateB);
-                ITypedContent<TypedContent>.ValidateDictEqual(a1.AllC, a2.AllC, ValidateC);
+                    throw new InvalidOperationException($"{path_description}: {a1.X} vs {a2.X}");
+                ITypedContent<TypedContent>.ValidateDictEqual($"{path_description} => AllB", a1.AllB, a2.AllB, ValidateB);
+                ITypedContent<TypedContent>.ValidateDictEqual($"{path_description} => AllC", a1.AllC, a2.AllC, ValidateC);
             }
 
-            void ValidateB(B b1, B b2)
+            void ValidateB(String path_description, B b1, B b2)
             {
                 if (b1.X != b2.X)
-                    throw new InvalidOperationException($"{nameof(A)}[{b1.parent.Id}]=>{nameof(B)}[{b1.Id}].X: {b1.X} vs {b2.X}");
+                    throw new InvalidOperationException($"{path_description}: {b1.X} vs {b2.X}");
             }
 
-            void ValidateC(C c1, C c2)
+            void ValidateC(String path_description, C c1, C c2)
             {
                 if (c1.X != c2.X)
-                    throw new InvalidOperationException($"{nameof(A)}[{c1.parent?.Id}]=>{nameof(C)}[{c1.Id}].X: {c1.X} vs {c2.X}");
+                    throw new InvalidOperationException($"{path_description}: {c1.X} vs {c2.X}");
             }
         }
 
         //TODO Add code-generated DateTime field
-        public sealed partial record class A(String Id, UInt32 X)
+        public sealed partial class A : ITypedModel<FileData.A>
         {
+            public required String Id { get; init; }
+            public required UInt32 X { get; init; }
             public Dictionary<String, B> AllB { get; } = [];
             public Dictionary<String, C> AllC { get; } = [];
+
+            public FileData.A ConvertToFileData() => new()
+            {
+                Id = this.Id,
+                X = this.X,
+            };
+
+            public override String ToString() => $"{nameof(A)}[{this.Id}]";
         }
-        public sealed partial record class B(String Id, A parent, UInt64 X);
-        public sealed partial record class C(String Id, A? parent, UInt64 X);
+        public sealed partial class B : ITypedModel<FileData.B>
+        {
+            public required String Id { get; init; }
+            public required UInt64 X { get; init; }
+
+            public FileData.B ConvertToFileData() => new()
+            {
+                Id = this.Id,
+                X = this.X,
+            };
+
+            public override String ToString() => $"{nameof(B)}[{this.Id}]";
+        }
+        public sealed partial class C : ITypedModel<FileData.C>
+        {
+            public required String Id { get; init; }
+            public required UInt64 X { get; init; }
+
+            public FileData.C ConvertToFileData() => new()
+            {
+                Id = this.Id,
+                X = this.X,
+            };
+
+            public override String ToString() => $"{nameof(C)}[{this.Id}]";
+        }
 
     }
 

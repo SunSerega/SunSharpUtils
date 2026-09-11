@@ -96,6 +96,9 @@ internal class CodeGenerator : IIncrementalGenerator
                         gen += $"";
                     }
 
+                    gen += $"#nullable enable";
+                    gen += $"";
+
                     gen += "file enum EClientCommand";
                     gen.AddBlock(gen =>
                     {
@@ -404,6 +407,21 @@ internal class CodeGenerator : IIncrementalGenerator
                     gen += $"";
                 }
 
+                gen += $"#nullable enable";
+                gen += $"";
+
+                gen += $"file enum EBlockKind";
+                gen.AddBlock(gen =>
+                {
+                    gen += $"Invalid = 0,";
+                    foreach (var kv in file_blocks)
+                    {
+                        var model_type = kv.Value.model_type;
+                        gen += $"{model_type.Name},";
+                    }
+                });
+                gen += $"";
+
                 gen += $"{data_stash_type.DeclaredAccessibility.ConvertToGenStr()} partial class {data_stash_type.Name}";
                 gen.AddBlock(gen =>
                 {
@@ -432,12 +450,7 @@ internal class CodeGenerator : IIncrementalGenerator
                         });
                         gen += $"";
 
-                        gen += $"public void Resave(Stream stream)";
-                        gen.AddBlock(gen =>
-                        {
-                            //TODO
-                            gen += $"throw new NotImplementedException();";
-                        });
+                        gen += $"public void Resave(ResaveContext context) => this.Resave(new TypedResaveContext(context));";
                         gen += $"";
 
                         foreach (var kv in file_blocks)
@@ -453,7 +466,9 @@ internal class CodeGenerator : IIncrementalGenerator
                             });
                             gen.AddBlock(gen =>
                             {
-                                gen += $"public required DateTime RecordTime {{ get; init; }}";
+                                gen += $"public required CommonTypedModelInfo CommonInfo {{ get; init; }}";
+                                if (typed_model_parents[model_type.Name] is { } parent_model_type)
+                                    gen += $"public required {parent_model_type.ToDisplayString()} Parent {{ get; init; }}";
                             });
                             gen += $"";
                         }
@@ -467,7 +482,7 @@ internal class CodeGenerator : IIncrementalGenerator
 
                     String ResaveContextClassName(String? container_model_name)
                     {
-                        var res = "ResaveContext";
+                        var res = "TypedResaveContext";
                         if (container_model_name is not null)
                             res += $"_{container_model_name}";
                         return res;
@@ -475,9 +490,10 @@ internal class CodeGenerator : IIncrementalGenerator
 
                     foreach (var container_model_name in all_parent_model_names.Prepend(null))
                     {
-                        gen += $"private sealed class {ResaveContextClassName(container_model_name)}";
+                        gen += $"public sealed class {ResaveContextClassName(container_model_name)}(ResaveContext context)";
                         gen.AddBlock(gen =>
                         {
+                            gen += $"private readonly ResaveContext context = context;";
                             gen += $"";
 
                             foreach (var (model_name, parent_model_type) in typed_model_parents)
@@ -498,9 +514,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                     var (network_data_type, file_data_type, model_type) = file_blocks[model_name];
                                     gen *= "public void AddBlock(";
                                     gen *= model_type.ToDisplayString();
-                                    gen *= " model, ";
-                                    gen *= file_data_type.ToDisplayString();
-                                    gen *= " file_data";
+                                    gen *= " model";
                                     if (all_parent_model_names.Contains(model_name))
                                     {
                                         gen *= ", Action<";
@@ -511,8 +525,19 @@ internal class CodeGenerator : IIncrementalGenerator
                                 });
                                 gen.AddBlock(gen =>
                                 {
-                                    //TODO
-                                    gen += $"throw new NotImplementedException();";
+                                    gen.AddLine(gen =>
+                                    {
+                                        gen *= "this.context.WriteBlock(model.CommonInfo, EBlockKind.";
+                                        gen *= model_name;
+                                        gen *= ", ";
+                                        if (parent_model_type is { })
+                                            gen *= "model.Parent?.CommonInfo.Location, ";
+                                        else
+                                            gen *= "parent_location: null, ";
+                                        gen *= "model.ConvertToFileData());";
+                                    });
+                                    if (all_parent_model_names.Contains(model_name))
+                                        gen += $"resave_children.Invoke(new {ResaveContextClassName(model_name)}(this.context));";
                                 });
                                 gen += $"";
 

@@ -43,40 +43,6 @@ namespace SunSharpUtils.DataStash;
 
 // ===
 
-//TODO I really need to decide what I actually want as a result, and what info I want in non-generated part
-// - Write it out until there is a logical line of reasoning between original goal and specific implementation details
-
-//TODO Fundamental goals for "data stash" system:
-// - Main idea is to have a forever-store containing binary log of events
-// - Events exist linearly in time (no branching), as they happened
-// --- Files should be append-only
-// --- Except when consolidating old files together
-// - Client can read events from any point in time
-// - Resistance to corruption (e.g. power loss) is important
-// --- The file being written should have an actively maintained backup, which is deleted when file is sealed
-// - Old files should be consolidated together to remain exponentially bigger and sparser the older they are
-// --- Exponential base should be configurable
-
-//TODO Implementation details:
-// - Each file is a list of blocks
-// - Blocks are organized into chains/trees. Dependant blocks must be in the same file as root block
-
-//TODO Info that has to be provided to the generator:
-// - File stores a list of blocks 
-// --- Each block needs a struct representing raw data that can be written directly
-// --- But also attribute can show dependence on another block
-// - Whole file when open should have a typed content representation
-// --- Need a class holding a more structured representation of everything in the file
-// --- Need a function to apply each next block from file to a newly created typed content representation
-// --- Need a function to create the initial typed content representation (just empty ctor?)
-// --- Need a way to resave typed content after merges (full resave or something that allows merging with prev block)
-//TODO Look at the old implementatio again
-//TODO How do I represent what block is original (e.g. add chat tree) and what is dependant?
-// - Just attributes ig?
-// - For now went with gen-args of an interface implemented by the typed state class
-
-// ===
-
 //TODO A common pattern to be made convenient:
 // - Some data that is part of typed models is dupped, so it should be stored in the file as a separate block (assigning value to key)
 // - Multiple values for the same key can be in the same file, when value is updated. Solved when reading by looking at timings
@@ -287,10 +253,12 @@ public abstract class DataStash
         /// <param name="block_locations"></param>
         public abstract void LogSealHeldByBlocks(DataStash<TSelf>.BlockLocation[] block_locations);
 
+        internal void Resave(Stream stream) =>
+            this.Resave(new DataStash<TSelf>.ResaveContext(stream));
         /// <summary>
         /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
         /// </summary>
-        public abstract void Resave(Stream stream);
+        public abstract void Resave(DataStash<TSelf>.ResaveContext context);
 
         /// <summary>
         /// Called after merging (when sealing or consolidating) to verify that content after save and load is the same as before
@@ -304,19 +272,24 @@ public abstract class DataStash
         /// </summary>
         /// <typeparam name="TKey"></typeparam>
         /// <typeparam name="TValue"></typeparam>
+        /// <param name="path_description"></param>
         /// <param name="d1"></param>
         /// <param name="d2"></param>
         /// <param name="validate_value"></param>
         /// <exception cref="InvalidOperationException"></exception>
-        public static void ValidateDictEqual<TKey, TValue>(Dictionary<TKey, TValue> d1, Dictionary<TKey, TValue> d2, Action<TValue, TValue> validate_value)
+        public static void ValidateDictEqual<TKey, TValue>(String path_description, Dictionary<TKey, TValue> d1, Dictionary<TKey, TValue> d2, Action<String, TValue, TValue> validate_value)
             where TKey : notnull
         {
             if (d1.Keys.Except(d2.Keys).ToArray() is { Length: not 0 } extra_keys1)
-                throw new InvalidOperationException($"Keys only in first dict: {extra_keys1.JoinToString("; ")}");
+                throw new InvalidOperationException($"{path_description}: Keys only in first dict: {extra_keys1.JoinToString("; ")}");
             if (d2.Keys.Except(d1.Keys).ToArray() is { Length: not 0 } extra_keys2)
-                throw new InvalidOperationException($"Keys only in first dict: {extra_keys2.JoinToString("; ")}");
+                throw new InvalidOperationException($"{path_description}: Keys only in second dict: {extra_keys2.JoinToString("; ")}");
             foreach (var key in d1.Keys)
-                validate_value.Invoke(d1[key], d2[key]);
+            {
+                var item1 = d1[key];
+                var item2 = d2[key];
+                validate_value.Invoke($"{path_description} => {item1}", item1, item2);
+            }
         }
     }
 
@@ -496,7 +469,7 @@ public abstract class DataStash<TTypedContent> : DataStash
                 yield break;
             var block_stream = new MemoryStream(buffer, 0, len, writable: false);
             var block_br = new BinaryReader(block_stream);
-            var record_time = DateTime.FromBinary(block_br.ReadInt64());
+            var record_time = block_br.ReadData<DateTime>();
             var block_id = block_br.ReadData<BlockId>();
             if (block_open_status_consumer is not null)
             {
@@ -526,7 +499,28 @@ public abstract class DataStash<TTypedContent> : DataStash
     public override String ToString() =>
         $"{nameof(DataStash<>)} ({this.GetType().Name})";
 
+    /// <summary>
+    /// </summary>
+    public readonly struct CommonTypedModelInfo
+    {
+        /// <summary>
+        /// </summary>
+        public required DateTime RecordTime { get; init; }
+        /// <summary>
+        /// </summary>
+        public required BlockLocation Location { get; init; }
+    }
+
     #region ITypedContent
+
+    /// <summary>
+    /// </summary>
+    public interface ITypedModel<TFileData>
+    {
+        /// <summary>
+        /// </summary>
+        public TFileData ConvertToFileData();
+    }
 
     /// <summary>
     /// <inheritdoc cref="DataStash.ITypedContent{TSelf}"/>
@@ -554,7 +548,7 @@ public abstract class DataStash<TTypedContent> : DataStash
     public interface ITypedContentWithRootBlock<TNetworkData, TFileData, TTyped>
         where TNetworkData : struct
         where TFileData : struct
-        where TTyped : class
+        where TTyped : class, ITypedModel<TFileData>
     {
         /// <summary>
         /// Turns network data into file data
@@ -567,10 +561,10 @@ public abstract class DataStash<TTypedContent> : DataStash
         /// <summary>
         /// Adds block's content from file to this instance, and returns newly created representation of this block
         /// </summary>
-        /// <param name="record_time"></param>
+        /// <param name="common_info"></param>
         /// <param name="content"></param>
         /// <returns></returns>
-        public TTyped ReadBlock(DateTime record_time, TFileData content);
+        public TTyped ReadBlock(CommonTypedModelInfo common_info, TFileData content);
     }
     /// <summary>
     /// Implement by typed file content type to add TData block with a parent
@@ -585,12 +579,12 @@ public abstract class DataStash<TTypedContent> : DataStash
         where TNetworkData : struct
         where TFileData : struct
         where TTypedParent : class?
-        where TTyped : class
+        where TTyped : class, ITypedModel<TFileData>
     {
         /// <inheritdoc cref="ITypedContentWithRootBlock{TNetworkData, TFileData, TTyped}.ParseNetworkPacket(TNetworkData)"/>
         public TFileData ParseNetworkPacket(TNetworkData data, out TTypedParent found_parent);
         /// <inheritdoc cref="ITypedContentWithRootBlock{TNetworkData, TFileData, TTyped}.ReadBlock"/>
-        public TTyped ReadBlock(DateTime record_time, TTypedParent parent, TFileData content);
+        public TTyped ReadBlock(CommonTypedModelInfo common_info, TTypedParent parent, TFileData content);
     }
 
     #endregion
@@ -759,7 +753,7 @@ public abstract class DataStash<TTypedContent> : DataStash
                     var pos1 = bw.BaseStream.Position;
                     bw.WriteEnum(EBlockKind.Data);
                     bw.Write(-1); // block len placeholder
-                    bw.Write(record_time.ToBinary());
+                    bw.WriteData(record_time);
                     bw.WriteData(new_id);
                     bw.Write(hold_open);
                     bw.WriteEnum(command);
@@ -1012,6 +1006,40 @@ public abstract class DataStash<TTypedContent> : DataStash
     }
 
     #endregion
+
+    /// <summary>
+    /// </summary>
+    public sealed class ResaveContext
+    {
+        private readonly BinaryWriter bw;
+
+        internal ResaveContext(Stream stream)
+        {
+            this.bw = new BinaryWriter(stream);
+        }
+
+        /// <summary>
+        /// </summary>
+        public void WriteBlock<TCommand, TFileData>(CommonTypedModelInfo common_info, TCommand command, BlockLocation? parent_location, TFileData file_data)
+            where TCommand : struct, Enum
+            where TFileData : struct
+        {
+            var pos1 = this.bw.BaseStream.Position;
+            this.bw.Write(-1); // block len placeholder
+            this.bw.WriteData(common_info.RecordTime);
+            this.bw.WriteData(common_info.Location.BlockId);
+            this.bw.WriteEnum(command);
+            if (parent_location is { } loc)
+                this.bw.WriteData(loc.BlockId);
+            this.bw.WriteData(file_data);
+            var pos2 = this.bw.BaseStream.Position;
+            this.bw.BaseStream.Position = pos1;
+            this.bw.Write(checked((Int32)(pos2 - pos1)));
+            this.bw.BaseStream.Position = pos2;
+            this.bw.Flush();
+        }
+
+    }
 
     private sealed class PendingSealer(DataStash<TTypedContent> data_stash)
     {
