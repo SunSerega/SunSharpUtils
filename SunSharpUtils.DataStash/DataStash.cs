@@ -224,79 +224,11 @@ public readonly struct DataStashConsolidationConfig(Double file_time_target_exp_
 /// History is stored in multiple files, old files are describing exponentially bigger time spans
 /// (through continuous consolidation)
 /// </summary>
-public abstract class DataStash
-{
-
-    /// <summary>
-    /// Implement by typed file content type to convert all of its content back into file blocks
-    /// </summary>
-    /// <typeparam name="TSelf"></typeparam>
-    public interface ITypedContent<TSelf>
-        where TSelf : class, ITypedContent<TSelf>, new()
-    {
-
-        /// <summary>
-        /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
-        /// </summary>
-        public abstract void ApplyBlock(DataStash<TSelf>.CommonTypedModelInfo common_info, DataStash<TSelf>.ReadContext context);
-
-        /// <summary>
-        /// Called when sealing is skipped due to open blocks
-        /// <para/>
-        /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
-        /// </summary>
-        /// <param name="file_group_description"></param>
-        /// <param name="block_locations"></param>
-        public abstract void LogSealHeldByBlocks(String file_group_description, DataStash<TSelf>.BlockLocation[] block_locations);
-
-        internal void Resave(Stream stream) =>
-            this.Resave(new DataStash<TSelf>.ResaveContext(stream));
-        /// <summary>
-        /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
-        /// </summary>
-        public abstract void Resave(DataStash<TSelf>.ResaveContext context);
-
-        /// <summary>
-        /// Called after merging (when sealing or consolidating) to verify that content after save and load is the same as before
-        /// </summary>
-        /// <param name="content1"></param>
-        /// <param name="content2"></param>
-        public static abstract void ValidateEqual(TSelf content1, TSelf content2);
-
-        /// <summary>
-        /// Throws if dictionaries are not equal. Supposed to be called from <see cref="ValidateEqual(TSelf, TSelf)"/>
-        /// </summary>
-        /// <typeparam name="TKey"></typeparam>
-        /// <typeparam name="TValue"></typeparam>
-        /// <param name="path_description"></param>
-        /// <param name="d1"></param>
-        /// <param name="d2"></param>
-        /// <param name="validate_value"></param>
-        /// <exception cref="InvalidOperationException"></exception>
-        public static void ValidateDictEqual<TKey, TValue>(String path_description, Dictionary<TKey, TValue> d1, Dictionary<TKey, TValue> d2, Action<String, TValue, TValue> validate_value)
-            where TKey : notnull
-        {
-            if (d1.Keys.Except(d2.Keys).ToArray() is { Length: not 0 } extra_keys1)
-                throw new InvalidOperationException($"{path_description}: Keys only in first dict: {extra_keys1.JoinToString("; ")}");
-            if (d2.Keys.Except(d1.Keys).ToArray() is { Length: not 0 } extra_keys2)
-                throw new InvalidOperationException($"{path_description}: Keys only in second dict: {extra_keys2.JoinToString("; ")}");
-            foreach (var key in d1.Keys)
-            {
-                var item1 = d1[key];
-                var item2 = d2[key];
-                validate_value.Invoke($"{path_description} => {item1}", item1, item2);
-            }
-        }
-    }
-
-}
-
-/// <summary>
-/// <inheritdoc cref="DataStash"/>
-/// </summary>
+/// <typeparam name="TDataStash"></typeparam>
 /// <typeparam name="TTypedContent"></typeparam>
-public abstract class DataStash<TTypedContent> : DataStash
-    where TTypedContent : class, DataStash.ITypedContent<TTypedContent>, new()
+public abstract class DataStash<TDataStash, TTypedContent>
+    where TDataStash : DataStash<TDataStash, TTypedContent>
+    where TTypedContent : class, DataStash<TDataStash, TTypedContent>.ITypedContent<TTypedContent>, new()
 {
     private readonly DirectoryInfo root_dir;
     private readonly CancellationToken svc_stop_token;
@@ -318,8 +250,9 @@ public abstract class DataStash<TTypedContent> : DataStash
     /// </summary>
     /// <param name="data_dir">A directory to store all the data. Must not have any other files</param>
     /// <param name="svc_stop_token"></param>
+    /// <param name="on_content_inited"></param>
     /// <param name="consolidation_config"></param>
-    protected DataStash(String data_dir, CancellationToken svc_stop_token, DataStashConsolidationConfig? consolidation_config = null)
+    protected DataStash(String data_dir, CancellationToken svc_stop_token, Action<TTypedContent>? on_content_inited = null, DataStashConsolidationConfig? consolidation_config = null)
     {
         Prompt.Notify($"Initializing {this} in: {data_dir}");
         this.root_dir = Directory.CreateDirectory(data_dir);
@@ -343,17 +276,19 @@ public abstract class DataStash<TTypedContent> : DataStash
             Prompt.Notify($"Validating sealed state file {file_id}");
             var file_path = Path.Combine(this.root_dir.FullName, $"{file_id}{file_ext}");
             using var fs = File.OpenRead(file_path);
-            this.ReadSealedFileContent(file_id);
+            var content = this.ReadSealedFileContent(file_id);
+            on_content_inited?.Invoke(content);
         }
         Prompt.Notify($"Validated {this.all_sealed_state_files.Count} sealed state files");
 
         foreach (var sub_dir in this.pending_dir.EnumerateDirectories())
         {
-            var pending_file_group = new PendingFileGroup(this, sub_dir, svc_stop_token);
+            var pending_file_group = new PendingFileGroup(this, sub_dir, expect_existing_content: true, svc_stop_token);
             if (this.all_sealed_state_files.Contains(pending_file_group.Id))
                 throw new InvalidOperationException($"Pending state {pending_file_group.Id} conflicts with a sealed file with the same id");
             if (this.all_pending_state_files.ContainsKey(pending_file_group.Id))
                 throw new InvalidOperationException($"Pending state {pending_file_group.Id} exists multiple times");
+            on_content_inited?.Invoke(pending_file_group.Content);
             this.all_pending_state_files[pending_file_group.Id] = pending_file_group;
         }
 
@@ -363,7 +298,7 @@ public abstract class DataStash<TTypedContent> : DataStash
         this.sealed_consolidator = new SealedConsolidator(this, consolidation_config ?? new());
         this.sealed_consolidator.Start(svc_stop_token);
 
-        Prompt.Notify($"Initialized {nameof(DataStash<>)} ({this.GetType().Name})");
+        Prompt.Notify($"Initialized {nameof(DataStash<,>)} ({this.GetType().Name})");
     }
 
     #region ReadFile
@@ -391,8 +326,9 @@ public abstract class DataStash<TTypedContent> : DataStash
             content.ApplyBlock(common_info, new(common_info.Location, br));
     }
 
-    private static IEnumerable<(CommonTypedModelInfo common_info, BinaryReader block_br)> ReadFileBlocks(
-        String description, Stream stream, Boolean trim_corrupted, Func<BlockId, BlockLocation> location_factory, (Action<BlockId> on_open, Action<BlockId> on_close)? block_open_status_consumers)
+    private static IEnumerable<(CommonTypedModelInfo common_info, BinaryReader block_br)> ReadFileBlocks<TLocation>(
+        String description, Stream stream, Boolean trim_corrupted, Func<BlockId, TLocation> location_factory, (Action<TLocation> on_open, Action<TLocation> on_close)? block_open_status_consumers)
+        where TLocation : BlockLocation
     {
         var br = new BinaryReader(stream);
 
@@ -451,7 +387,7 @@ public abstract class DataStash<TTypedContent> : DataStash
                     case EBlockKind.Close:
                         if (!TryRead("id of the block being closed", Marshal.SizeOf<BlockId>(), br => br.ReadData<BlockId>(), out var closed_block_id))
                             yield break;
-                        on_close.Invoke(closed_block_id);
+                        on_close.Invoke(location_factory.Invoke(closed_block_id));
                         break;
                     default:
                         throw new InvalidDataException($"File {description} corrupted: Invalid block kind: {kind}");
@@ -471,13 +407,13 @@ public abstract class DataStash<TTypedContent> : DataStash
             var block_br = new BinaryReader(block_stream);
             var record_time = block_br.ReadData<DateTime>();
             var block_id = block_br.ReadData<BlockId>();
+            var location = location_factory.Invoke(block_id);
             if (block_open_status_consumers is { on_open: var on_open })
             {
                 var hold_open = block_br.ReadBoolean();
                 if (hold_open)
-                    on_open.Invoke(block_id);
+                    on_open.Invoke(location);
             }
-            var location = location_factory.Invoke(block_id);
             var common_info = new CommonTypedModelInfo { RecordTime = record_time, Location = location };
             yield return (common_info, block_br);
             if (trim_corrupted)
@@ -493,7 +429,7 @@ public abstract class DataStash<TTypedContent> : DataStash
     protected T UseNewWriteLocation<T>(Func<BlockLocation, T> use) => this.l_all_pending_state_files.ManyLocked(() =>
     {
         var file_id = FileId.Current;
-        var pending_file_group = this.all_pending_state_files.GetOrAdd(file_id, id => new PendingFileGroup(this, this.pending_dir.CreateSubdirectory(id.ToString()), this.svc_stop_token));
+        var pending_file_group = this.all_pending_state_files.GetOrAdd(file_id, id => new PendingFileGroup(this, this.pending_dir.CreateSubdirectory(id.ToString()), expect_existing_content: false, this.svc_stop_token));
         var location = pending_file_group.ChooseWriteLocation();
         return use.Invoke(location);
     });
@@ -554,7 +490,7 @@ public abstract class DataStash<TTypedContent> : DataStash
     /// <summary>
     /// </summary>
     public override String ToString() =>
-        $"{nameof(DataStash<>)} ({this.GetType().Name})";
+        $"{nameof(DataStash<,>)} ({this.GetType().Name})";
 
     /// <summary>
     /// </summary>
@@ -580,7 +516,75 @@ public abstract class DataStash<TTypedContent> : DataStash
     }
 
     /// <summary>
-    /// <inheritdoc cref="DataStash.ITypedContent{TSelf}"/>
+    /// Implement by typed file content type to convert all of its content back into file blocks
+    /// </summary>
+    /// <typeparam name="TSelf"></typeparam>
+    public interface ITypedContent<TSelf>
+        where TSelf : class, ITypedContent<TSelf>, new()
+    {
+
+        /// <summary>
+        /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
+        /// </summary>
+        public abstract void ApplyBlock(CommonTypedModelInfo common_info, ReadContext context);
+
+        /// <summary>
+        /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
+        /// </summary>
+        /// <param name="location"></param>
+        public abstract void CloseModel(BlockLocation location);
+
+        /// <summary>
+        /// Called when sealing is skipped due to open blocks
+        /// <para/>
+        /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
+        /// </summary>
+        /// <param name="file_group_description"></param>
+        /// <param name="block_locations"></param>
+        public abstract void LogSealHeldByBlocks(String file_group_description, BlockLocation[] block_locations);
+
+        internal void Resave(Stream stream) =>
+            this.Resave(new ResaveContext(stream));
+        /// <summary>
+        /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
+        /// </summary>
+        public abstract void Resave(ResaveContext context);
+
+        /// <summary>
+        /// Called after merging (when sealing or consolidating) to verify that content after save and load is the same as before
+        /// </summary>
+        /// <param name="content1"></param>
+        /// <param name="content2"></param>
+        public static abstract void ValidateEqual(TSelf content1, TSelf content2);
+
+        /// <summary>
+        /// Throws if dictionaries are not equal. Supposed to be called from <see cref="ValidateEqual(TSelf, TSelf)"/>
+        /// </summary>
+        /// <typeparam name="TKey"></typeparam>
+        /// <typeparam name="TValue"></typeparam>
+        /// <param name="path_description"></param>
+        /// <param name="d1"></param>
+        /// <param name="d2"></param>
+        /// <param name="validate_value"></param>
+        /// <exception cref="InvalidOperationException"></exception>
+        public static void ValidateDictEqual<TKey, TValue>(String path_description, Dictionary<TKey, TValue> d1, Dictionary<TKey, TValue> d2, Action<String, TValue, TValue> validate_value)
+            where TKey : notnull
+        {
+            if (d1.Keys.Except(d2.Keys).ToArray() is { Length: not 0 } extra_keys1)
+                throw new InvalidOperationException($"{path_description}: Keys only in first dict: {extra_keys1.JoinToString("; ")}");
+            if (d2.Keys.Except(d1.Keys).ToArray() is { Length: not 0 } extra_keys2)
+                throw new InvalidOperationException($"{path_description}: Keys only in second dict: {extra_keys2.JoinToString("; ")}");
+            foreach (var key in d1.Keys)
+            {
+                var item1 = d1[key];
+                var item2 = d2[key];
+                validate_value.Invoke($"{path_description} => {item1}", item1, item2);
+            }
+        }
+    }
+
+    /// <summary>
+    /// <inheritdoc cref="ITypedContent{TSelf}"/>
     /// </summary>
     /// <typeparam name="TSelf"></typeparam>
     /// <typeparam name="TResaveContext"></typeparam>
@@ -606,9 +610,10 @@ public abstract class DataStash<TTypedContent> : DataStash
         /// <para/>
         /// The result will be written to file and immediately passed to ReadBlock
         /// </summary>
+        /// <param name="data_stash"></param>
         /// <param name="data"></param>
         /// <returns></returns>
-        public static abstract TFileData ParseNetworkPacket(TNetworkData data);
+        public static abstract TFileData ParseNetworkPacket(TDataStash data_stash, TNetworkData data);
     }
 
     /// <summary>
@@ -659,6 +664,7 @@ public abstract class DataStash<TTypedContent> : DataStash
     /// <typeparam name="TKey"></typeparam>
     /// <typeparam name="TModel"></typeparam>
     public interface ITypedContentWithCloseableBlock<TKey, TModel>
+        where TKey : IEquatable<TKey>
         where TModel : class
     {
         /// <summary>
@@ -685,7 +691,7 @@ public abstract class DataStash<TTypedContent> : DataStash
     {
         /// <summary>
         /// </summary>
-        public Boolean TryUsePendingContent(DataStash<TTypedContent> data_stash, Action<TTypedContent> act);
+        public Boolean TryUsePendingContent(DataStash<TDataStash, TTypedContent> data_stash, Action<TTypedContent> act);
     }
 
     private readonly record struct FileId : IFileId, IEquatable<FileId>, IComparable<FileId>
@@ -693,7 +699,7 @@ public abstract class DataStash<TTypedContent> : DataStash
         public required DateOnly Date { get; init; }
         public required Int32 Hour { get; init; }
 
-        public Boolean TryUsePendingContent(DataStash<TTypedContent> data_stash, Action<TTypedContent> act)
+        public Boolean TryUsePendingContent(DataStash<TDataStash, TTypedContent> data_stash, Action<TTypedContent> act)
         {
             var file_id = this;
             return data_stash.l_all_pending_state_files.ManyLocked(() =>
@@ -748,7 +754,7 @@ public abstract class DataStash<TTypedContent> : DataStash
     private sealed class PendingFileGroup
     {
         private static readonly Int32 max_writers = Environment.ProcessorCount;
-        private readonly DataStash<TTypedContent> data_stash;
+        private readonly DataStash<TDataStash, TTypedContent> data_stash;
         private readonly DirectoryInfo dir;
         private readonly FileId id;
         private Int32 file_count;
@@ -762,10 +768,10 @@ public abstract class DataStash<TTypedContent> : DataStash
         private readonly TTypedContent typed_content = new();
 
         private readonly Lock l_sealing = new();
-        private readonly HashSet<(Int32 index, BlockId id)> open_blocks = [];
+        private readonly HashSet<PendingBlockLocation> open_blocks = [];
         private Boolean sealing_started = false;
 
-        public PendingFileGroup(DataStash<TTypedContent> data_stash, DirectoryInfo dir, CancellationToken svc_stop_token)
+        public PendingFileGroup(DataStash<TDataStash, TTypedContent> data_stash, DirectoryInfo dir, Boolean expect_existing_content, CancellationToken svc_stop_token)
         {
             this.data_stash = data_stash;
             this.dir = dir;
@@ -776,6 +782,8 @@ public abstract class DataStash<TTypedContent> : DataStash
             var used_ids = new List<BlockId>();
             if (this.file_count != 0)
             {
+                if (!expect_existing_content)
+                    throw new InvalidOperationException($"Pending state {this.id} already exists, but was not expected to exist");
                 Prompt.Notify($"Loading pending state {this.id} from {this.file_count} parallel files");
 
                 var expected_files = Enumerable.Range(0, this.file_count).Select(i => $"{i}{file_ext}").ToHashSet();
@@ -801,17 +809,18 @@ public abstract class DataStash<TTypedContent> : DataStash
                             id => new PendingBlockLocation(this, file.ind, id),
                             block_open_status_consumers:
                             (
-                                on_open: id =>
+                                on_open: location =>
                                 {
-                                    if (!this.open_blocks.Add((file.ind, id)))
-                                        throw new InvalidOperationException($"Pending state {this.id} is corrupted: Block {id} in file {file.ind} is already open");
+                                    if (!this.open_blocks.Add(location))
+                                        throw new InvalidOperationException($"Pending state is corrupted: Block at {location} is already open");
                                 },
-                                on_close: id =>
+                                on_close: location =>
                                 {
-                                    if (!this.open_blocks.Remove((file.ind, id)))
-                                        throw new InvalidOperationException($"Pending state {this.id} is corrupted: Block {id} in file {file.ind} is not open");
+                                    if (!this.open_blocks.Remove(location))
+                                        throw new InvalidOperationException($"Pending state is corrupted: Block at {location} is not open");
+                                    this.typed_content.CloseModel(location);
                                 }
-                            )
+                        )
                         ).GetEnumerator();
                     });
                     var inds_with_next = Enumerable.Range(0, this.file_count).Where(ind => block_enumerators[ind].MoveNext()).ToList();
@@ -859,6 +868,7 @@ public abstract class DataStash<TTypedContent> : DataStash
 
             var record_time = DateTime.UtcNow;
             var new_id = this.block_id_allocator.AllocateId();
+            var location = new PendingBlockLocation(this, Index, new_id);
 
             lock (this.l_sealing)
             {
@@ -866,8 +876,8 @@ public abstract class DataStash<TTypedContent> : DataStash
                     throw new InvalidOperationException($"Pending state {this.id} is already being sealed, cannot add new block {new_id}. A lock should have prevented this");
                 if (hold_open)
                 {
-                    if (!this.open_blocks.Add((Index, new_id)))
-                        throw new InvalidOperationException($"Pending state {this.id} is corrupted: Block {new_id} in file {Index} is already open");
+                    if (!this.open_blocks.Add(location))
+                        throw new InvalidOperationException($"Pending state is corrupted: Block at {location} is already open");
                 }
 
                 this.writers[Index].Enqueue(bw =>
@@ -890,20 +900,19 @@ public abstract class DataStash<TTypedContent> : DataStash
                 });
             }
 
-            var location = new PendingBlockLocation(this, Index, new_id);
             var result = apply_to_state.Invoke(this.typed_content, new CommonTypedModelInfo { Location = location, RecordTime = record_time }, data);
 
             return result;
         }
 
-        public void CloseBlock(Int32 Index, BlockId block_id)
+        public void CloseBlock(PendingBlockLocation location)
         {
-            if (!this.l_sealing.LockedGet(() => this.open_blocks.Remove((Index, block_id))))
-                throw new InvalidOperationException($"Pending state {this.id} is corrupted: Block {block_id} in file {Index} was not open");
-            this.writers[Index].Enqueue(bw =>
+            if (!this.l_sealing.LockedGet(() => this.open_blocks.Remove(location)))
+                throw new InvalidOperationException($"Pending state is corrupted: Block at {location} was not open");
+            this.writers[location.FileIndex].Enqueue(bw =>
             {
                 bw.WriteEnum(EBlockKind.Close);
-                bw.WriteData(block_id);
+                bw.WriteData(location.BlockId);
                 bw.Flush();
             });
         }
@@ -917,7 +926,7 @@ public abstract class DataStash<TTypedContent> : DataStash
                 var open_blocks = this.open_blocks.ToArray();
                 if (open_blocks.Length != 0)
                 {
-                    this.typed_content.LogSealHeldByBlocks($"pending file group {this.id}", open_blocks.ToArray(key => new PendingBlockLocation(this, key.index, key.id)));
+                    this.typed_content.LogSealHeldByBlocks($"pending file group {this.id}", open_blocks);
                     return false;
                 }
                 this.sealing_started = true;
@@ -996,7 +1005,7 @@ public abstract class DataStash<TTypedContent> : DataStash
 
             new_writer.StartProcessingThread(new()
             {
-                UsedFor = $"{nameof(DataStash<>)}.{nameof(PendingFileGroup)}({this.id}) Writer#{index}",
+                UsedFor = $"{nameof(DataStash<,>)}.{nameof(PendingFileGroup)}({this.id}) Writer#{index}",
                 OnNewItems = actions =>
                 {
                     File.Copy(file_path, tmp_file_path, overwrite: false);
@@ -1092,8 +1101,8 @@ public abstract class DataStash<TTypedContent> : DataStash
 
     private sealed class PendingBlockLocation(PendingFileGroup file_group, Int32 file_index, BlockId block_id) : BlockLocation(block_id)
     {
-        private PendingFileGroup FileGroup { get; } = file_group;
-        private Int32 FileIndex { get; } = file_index;
+        public PendingFileGroup FileGroup { get; } = file_group;
+        public Int32 FileIndex { get; } = file_index;
 
         internal override BlockLocation WithId(BlockId new_id) =>
             new PendingBlockLocation(this.FileGroup, this.FileIndex, new_id);
@@ -1101,12 +1110,12 @@ public abstract class DataStash<TTypedContent> : DataStash
         public override TResult AddNewBlock<TCommand, TData, TResult>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Func<TTypedContent, CommonTypedModelInfo, TData, TResult> apply_to_state)
         {
             if (!add_parent_ref && this.BlockId != BlockId.NullParent)
-                throw new InvalidOperationException($"{nameof(DataStash<>)}: Explicit {this} should not be used when adding a new block without a parent reference. Invoke DataStash.UseNewWriteLocation to get a new location");
+                throw new InvalidOperationException($"{nameof(DataStash<,>)}: Explicit {this} should not be used when adding a new block without a parent reference. Invoke DataStash.UseNewWriteLocation to get a new location");
             return this.FileGroup.AddNewBlock(hold_open, this.FileIndex, command, add_parent_ref ? this.BlockId : null, data, apply_to_state);
         }
 
         public override void CloseBlock() =>
-            this.FileGroup.CloseBlock(this.FileIndex, this.BlockId);
+            this.FileGroup.CloseBlock(this);
 
         public override Boolean Equals(BlockLocation? other) =>
             other is PendingBlockLocation other_pending &&
@@ -1122,16 +1131,16 @@ public abstract class DataStash<TTypedContent> : DataStash
 
     private sealed class SealedBlockLocation(FileId file_id, BlockId block_id) : BlockLocation(block_id)
     {
-        private FileId FileId { get; } = file_id;
+        public FileId FileId { get; } = file_id;
 
         internal override BlockLocation WithId(BlockId new_id) =>
             new SealedBlockLocation(this.FileId, new_id);
 
         public override TResult AddNewBlock<TCommand, TData, TResult>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Func<TTypedContent, CommonTypedModelInfo, TData, TResult> apply_to_state) =>
-            throw new InvalidOperationException($"{nameof(DataStash<>)}: Cannot add new block to {this}");
+            throw new InvalidOperationException($"{nameof(DataStash<,>)}: Cannot add new block to {this}");
 
         public override void CloseBlock() =>
-            throw new InvalidOperationException($"{nameof(DataStash<>)}: Cannot close block at {this}");
+            throw new InvalidOperationException($"{nameof(DataStash<,>)}: Cannot close block at {this}");
 
         public override Boolean Equals(BlockLocation? other) =>
             other is SealedBlockLocation other_sealed &&
@@ -1202,7 +1211,7 @@ public abstract class DataStash<TTypedContent> : DataStash
             where TFileData : struct
         {
             if (common_info.RecordTime < this.last_record_time)
-                throw new InvalidOperationException($"{nameof(DataStash<>)}.{nameof(ResaveContext)}: Cannot write block with record time {common_info.RecordTime} before last written record time {this.last_record_time}");
+                throw new InvalidOperationException($"{nameof(DataStash<,>)}.{nameof(ResaveContext)}: Cannot write block with record time {common_info.RecordTime} before last written record time {this.last_record_time}");
             this.last_record_time = common_info.RecordTime;
 
             var pos1 = this.bw.BaseStream.Position;
@@ -1224,22 +1233,22 @@ public abstract class DataStash<TTypedContent> : DataStash
         {
             var id = this.new_id_allocator.AllocateId();
             if (!this.location_to_new_id.TryAdd(location, id))
-                throw new InvalidOperationException($"{nameof(DataStash<>)}.{nameof(ResaveContext)}: Duplicate {location} when allocating new {id}");
+                throw new InvalidOperationException($"{nameof(DataStash<,>)}.{nameof(ResaveContext)}: Duplicate {location} when allocating new {id}");
             return id;
         }
 
         private BlockId GetExistingIdForLocation(BlockLocation location)
         {
             if (!this.location_to_new_id.TryGetValue(location, out var id))
-                throw new InvalidOperationException($"{nameof(DataStash<>)}.{nameof(ResaveContext)}: {location} has no new allocated {nameof(BlockId)}");
+                throw new InvalidOperationException($"{nameof(DataStash<,>)}.{nameof(ResaveContext)}: {location} has no new allocated {nameof(BlockId)}");
             return id;
         }
 
     }
 
-    private sealed class PendingSealer(DataStash<TTypedContent> data_stash)
+    private sealed class PendingSealer(DataStash<TDataStash, TTypedContent> data_stash)
     {
-        private readonly DataStash<TTypedContent> data_stash = data_stash;
+        private readonly DataStash<TDataStash, TTypedContent> data_stash = data_stash;
 
         public void Start(CancellationToken svc_stop_token)
         {
@@ -1310,9 +1319,9 @@ public abstract class DataStash<TTypedContent> : DataStash
 
     }
 
-    private sealed class SealedConsolidator(DataStash<TTypedContent> data_stash, DataStashConsolidationConfig consolidation_config)
+    private sealed class SealedConsolidator(DataStash<TDataStash, TTypedContent> data_stash, DataStashConsolidationConfig consolidation_config)
     {
-        private readonly DataStash<TTypedContent> data_stash = data_stash;
+        private readonly DataStash<TDataStash, TTypedContent> data_stash = data_stash;
         private readonly DataStashConsolidationConfig consolidation_config = consolidation_config;
 
         private readonly ManualResetEventSlim wh_recompute = new(true);

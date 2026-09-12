@@ -243,13 +243,13 @@ internal class CodeGenerator : IIncrementalGenerator
         context.RegisterSourceOutput(data_stash_types, (context, gen_item) =>
         {
             var (data_stash_type, attrib) = gen_item;
-            if (data_stash_type.BaseType is not { } data_stash_base_type || data_stash_base_type.Name != nameof(DataStash<>) || data_stash_base_type.TypeArguments.Length != 1)
+            if (data_stash_type.BaseType is not { } data_stash_base_type || data_stash_base_type.Name != nameof(DataStash<,>) || data_stash_base_type.TypeArguments.Length != 2)
             {
                 data_stash_type.ReportOnAllDeclaringSyntax(
                     context,
                     id: "DS001",
                     title: "Invalid base type for DataStash",
-                    messageFormat: "DataStash type '{0}' needs to inherit from DataStash<>",
+                    messageFormat: "DataStash type '{0}' needs to inherit from DataStash<,>",
                     DiagnosticSeverity.Error,
                     args: [data_stash_type.Name]
                 );
@@ -271,7 +271,7 @@ internal class CodeGenerator : IIncrementalGenerator
             }
 
             var namespace_name = data_stash_type.ContainingNamespace.IsGlobalNamespace ? null : data_stash_type.ContainingNamespace.ToDisplayString();
-            var typed_content_type = data_stash_base_type.TypeArguments.Single();
+            var typed_content_type = data_stash_base_type.TypeArguments.Skip(1).Single();
             if (!SymbolEqualityComparer.Default.Equals(typed_content_type.ContainingType, data_stash_type))
             {
                 data_stash_type.ReportOnAllDeclaringSyntax(
@@ -294,7 +294,7 @@ internal class CodeGenerator : IIncrementalGenerator
                 {
                     switch (impl_type.Name)
                     {
-                        case nameof(DataStash<>.ITypedContent<,>):
+                        case nameof(DataStash<,>.ITypedContent<,>):
                             if (core_implemented)
                             {
                                 typed_content_type.ReportOnAllDeclaringSyntax(
@@ -320,7 +320,7 @@ internal class CodeGenerator : IIncrementalGenerator
                             }
                             core_implemented = true;
                             break;
-                        case nameof(DataStash<>.ITypedContentWithRootBlock<,,>):
+                        case nameof(DataStash<,>.ITypedContentWithRootBlock<,,>):
                         {
                             if (impl_type.TypeArguments.Length != 3)
                             {
@@ -341,7 +341,7 @@ internal class CodeGenerator : IIncrementalGenerator
                             typed_model_parents.Add(model_type.Name, null);
                             break;
                         }
-                        case nameof(DataStash<>.ITypedContentWithChildBlock<,,,>):
+                        case nameof(DataStash<,>.ITypedContentWithChildBlock<,,,>):
                         {
                             if (impl_type.TypeArguments.Length != 4)
                             {
@@ -363,7 +363,7 @@ internal class CodeGenerator : IIncrementalGenerator
                             typed_model_parents.Add(model_type.Name, parent_model_type);
                             break;
                         }
-                        case nameof(DataStash<>.ITypedContentWithCloseableBlock<,>):
+                        case nameof(DataStash<,>.ITypedContentWithCloseableBlock<,>):
                         {
                             if (impl_type.TypeArguments.Length != 2)
                             {
@@ -471,7 +471,7 @@ internal class CodeGenerator : IIncrementalGenerator
 
                     foreach (var (network_data_type, file_data_type, model_type) in file_blocks.Values)
                     {
-                        gen += $"public {model_type.ToDisplayString()} {network_data_type.Name}({network_data_type.ToDisplayString()} network_data)";
+                        gen += $"public {model_type.ToDisplayString()} Add{model_type.Name}({network_data_type.ToDisplayString()} network_data)";
                         gen.AddBlock(gen =>
                         {
                             if (typed_model_parents[model_type.Name] is { } parent_model_type)
@@ -521,7 +521,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                         gen *= has_parent.ToString().ToLower();
                                         gen *= ", ";
                                         gen *= typed_content_type.Name;
-                                        gen *= ".ParseNetworkPacket(network_data),";
+                                        gen *= ".ParseNetworkPacket(this, network_data),";
                                     });
                                     gen.AddLine(gen =>
                                     {
@@ -648,6 +648,22 @@ internal class CodeGenerator : IIncrementalGenerator
                         });
                         gen += $"";
 
+                        gen += $"public void CloseModel(BlockLocation location)";
+                        gen.AddBlock(gen =>
+                        {
+                            foreach (var model_name in closable_typed_models.Keys)
+                            {
+                                gen += $"if (this.TryGetModel(location, out {model_name}? model_{model_name}))";
+                                gen.AddBlock(gen =>
+                                {
+                                    gen += $"model_{model_name}.IsOpen = false;";
+                                    gen += $"return;";
+                                });
+                            }
+                            gen += $"throw new InvalidOperationException($\"No closable model found at {{location}}\");";
+                        });
+                        gen += $"";
+
                         gen += $"public void LogSealHeldByBlocks(String file_group_description, BlockLocation[] block_locations)";
                         gen.AddBlock(gen =>
                         {
@@ -689,6 +705,8 @@ internal class CodeGenerator : IIncrementalGenerator
                                 gen += $"public required CommonTypedModelInfo CommonInfo {{ get; init; }}";
                                 if (typed_model_parents[model_type.Name] is { } parent_model_type)
                                     gen += $"public required {parent_model_type.ToDisplayString()} Parent {{ get; init; }}";
+                                if (closable_typed_models.ContainsKey(model_type.Name))
+                                    gen += $"public Boolean IsOpen {{ get; set; }} = true;";
                             });
                             gen += $"";
                         }

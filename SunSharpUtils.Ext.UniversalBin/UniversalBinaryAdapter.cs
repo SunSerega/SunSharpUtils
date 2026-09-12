@@ -14,6 +14,11 @@ using SunSharpUtils.Ext.Linq;
 
 namespace SunSharpUtils.Ext.UniversalBin;
 
+//TODO Add support for abstract class
+// - Throw if [AutoSerializedData] without [AbstractData] on an abstract class
+// - Limited number of expected non-abstract subclasses
+// - Make compatible with [VersionedData]. Apply [AbstractData] only when reading current version
+
 //TODO Get up to speed with StructSerializer in "vid list" solution and then split this file, so I have 1 per global type here
 
 //TODO Interface to define custom default marshaling in any given type
@@ -120,6 +125,7 @@ public static class UniversalBinaryAdapter
         public static ConcurrentDictionary<Type, Func<IUniversalBinaryAdapter?>> AllDefaults { get; } = [];
         public static IUniversalBinaryAdapter GetDefaultForType(Type t)
         {
+            //TODO This is a hack, I can generate the default adapter in a less stupid way
             RuntimeHelpers.RunClassConstructor(typeof(UniversalBinaryAdapter<>).MakeGenericType(t).TypeHandle);
             if (!AllDefaults.TryGetValue(t, out var factory))
                 throw new InvalidOperationException($"{nameof(UniversalBinaryAdapter<>)}<{t}> is not initialized");
