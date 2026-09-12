@@ -1078,9 +1078,7 @@ public abstract class DataStash<TTypedContent> : DataStash
         /// <summary>
         /// </summary>
         public abstract Boolean Equals(BlockLocation? other);
-        /// <summary>
-        /// </summary>
-        protected abstract Int32 GetHashCodeCore();
+        private protected abstract Int32 GetHashCodeCore();
 
         /// <summary>
         /// </summary>
@@ -1104,7 +1102,7 @@ public abstract class DataStash<TTypedContent> : DataStash
         public override TResult AddNewBlock<TCommand, TData, TResult>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Func<TTypedContent, CommonTypedModelInfo, TData, TResult> apply_to_state)
         {
             if (!add_parent_ref && this.BlockId != BlockId.NullParent)
-                throw new InvalidOperationException($"Explicit location should not be used when adding a new block without a parent reference. Use ChooseWriteLocation to get a new location");
+                throw new InvalidOperationException($"{nameof(DataStash<>)}: Explicit {this} should not be used when adding a new block without a parent reference. Invoke DataStash.UseNewWriteLocation to get a new location");
             return this.FileGroup.AddNewBlock(hold_open, this.FileIndex, command, add_parent_ref ? this.BlockId : null, data, apply_to_state);
         }
 
@@ -1117,7 +1115,7 @@ public abstract class DataStash<TTypedContent> : DataStash
             this.FileIndex == other_pending.FileIndex &&
             this.BlockId == other_pending.BlockId;
 
-        protected override Int32 GetHashCodeCore() =>
+        private protected override Int32 GetHashCodeCore() =>
             HashCode.Combine(this.FileGroup, this.FileIndex);
 
         public override String ToString() => $"{nameof(PendingBlockLocation)}({this.FileGroup.Id}[{this.FileIndex}] => {this.BlockId})";
@@ -1131,17 +1129,17 @@ public abstract class DataStash<TTypedContent> : DataStash
             new SealedBlockLocation(this.FileId, new_id);
 
         public override TResult AddNewBlock<TCommand, TData, TResult>(Boolean hold_open, TCommand command, Boolean add_parent_ref, TData data, Func<TTypedContent, CommonTypedModelInfo, TData, TResult> apply_to_state) =>
-            throw new InvalidOperationException($"Cannot add new block to {this}");
+            throw new InvalidOperationException($"{nameof(DataStash<>)}: Cannot add new block to {this}");
 
         public override void CloseBlock() =>
-            throw new InvalidOperationException($"Cannot close block in {this}");
+            throw new InvalidOperationException($"{nameof(DataStash<>)}: Cannot close block at {this}");
 
         public override Boolean Equals(BlockLocation? other) =>
             other is SealedBlockLocation other_sealed &&
             this.FileId == other_sealed.FileId &&
             this.BlockId == other_sealed.BlockId;
 
-        protected override Int32 GetHashCodeCore() =>
+        private protected override Int32 GetHashCodeCore() =>
             HashCode.Combine(this.FileId, this.BlockId);
 
         public override String ToString() => $"{nameof(SealedBlockLocation)}({this.FileId} => {this.BlockId})";
@@ -1177,7 +1175,7 @@ public abstract class DataStash<TTypedContent> : DataStash
 
         /// <summary>
         /// </summary>
-        public TData ReadFileData<TData>() =>
+        public TData ReadFileData<TData>() where TData : notnull =>
             this.br.ReadData<TData>();
 
     }
@@ -1188,6 +1186,10 @@ public abstract class DataStash<TTypedContent> : DataStash
     {
         private readonly BinaryWriter bw;
         private DateTime last_record_time = DateTime.MinValue;
+
+        // Resave can combine multiple files. BlockId inside the location is unique only within one file, so we need to allocate new ids for the resaved file
+        private readonly IdAllocator<BlockId> new_id_allocator = new();
+        private readonly Dictionary<BlockLocation, BlockId> location_to_new_id = [];
 
         internal ResaveContext(Stream stream)
         {
@@ -1201,22 +1203,37 @@ public abstract class DataStash<TTypedContent> : DataStash
             where TFileData : struct
         {
             if (common_info.RecordTime < this.last_record_time)
-                throw new InvalidOperationException($"Cannot write block with record time {common_info.RecordTime} before last written record time {this.last_record_time}");
+                throw new InvalidOperationException($"{nameof(DataStash<>)}.{nameof(ResaveContext)}: Cannot write block with record time {common_info.RecordTime} before last written record time {this.last_record_time}");
             this.last_record_time = common_info.RecordTime;
 
             var pos1 = this.bw.BaseStream.Position;
             this.bw.Write(-1); // block len placeholder
             this.bw.WriteData(common_info.RecordTime);
-            this.bw.WriteData(common_info.Location.BlockId);
+            this.bw.WriteData(this.GetNewIdForLocation(common_info.Location));
             this.bw.WriteEnum(command);
             if (parent_location is { } loc)
-                this.bw.WriteData(loc.BlockId);
+                this.bw.WriteData(this.GetExistingIdForLocation(loc));
             this.bw.WriteData(file_data);
             var pos2 = this.bw.BaseStream.Position;
             this.bw.BaseStream.Position = pos1;
             this.bw.Write(checked((Int32)(pos2 - pos1)));
             this.bw.BaseStream.Position = pos2;
             //this.bw.Flush(); // Don't flush in the middle of resave, because whole resave is an atomic operation
+        }
+
+        private BlockId GetNewIdForLocation(BlockLocation location)
+        {
+            var id = this.new_id_allocator.AllocateId();
+            if (!this.location_to_new_id.TryAdd(location, id))
+                throw new InvalidOperationException($"{nameof(DataStash<>)}.{nameof(ResaveContext)}: Duplicate {location} when allocating new {id}");
+            return id;
+        }
+
+        private BlockId GetExistingIdForLocation(BlockLocation location)
+        {
+            if (!this.location_to_new_id.TryGetValue(location, out var id))
+                throw new InvalidOperationException($"{nameof(DataStash<>)}.{nameof(ResaveContext)}: {location} has no new allocated {nameof(BlockId)}");
+            return id;
         }
 
     }
@@ -1260,7 +1277,7 @@ public abstract class DataStash<TTypedContent> : DataStash
 
                                     if (!this.data_stash.all_pending_state_files.Remove(file_id, out _))
                                         // Can't throw out of .RemoveAll, it leaves inconsistent state
-                                        Prompt.Notify($"{this.data_stash}: Failed to remove pending state file {file_id}");
+                                        Err.Handle($"{this.data_stash}: Failed to remove pending state file {file_id}");
 
                                     // New sealed file has been added, need to reset consolidation schedule
                                     this.data_stash.sealed_consolidator.RecomputeNextMergeTime();
