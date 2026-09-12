@@ -5,9 +5,17 @@ using System.Runtime.InteropServices;
 
 namespace SunSharpUtils.Ext.UniversalBin;
 
+//TODO Add support for structs of any shape
+// - Attribute to mark a type for auto-serialization
+// - Nullable classes in fields need to be handled with a bool flag before the field
+//TODO Versioning in custom structs:
+// - Main attribute just sets current version (int32 or object, not sure)
+// - Extra attributes to define structs for older versions
+// - IUpgradable interface, upgrading only 1 version up
+
 //TODO Get up to speed with StructSerializer in "vid list" solution and then split this file, so I have 1 per global type here
 
-//TODO Interface to define own default marshaling in any given type
+//TODO Interface to define custom default marshaling in any given type
 
 /// <summary>
 /// Common public utils for <see cref="UniversalBinaryAdapter{T}"/>
@@ -98,6 +106,15 @@ public abstract class UniversalBinaryAdapter<T> : IUniversalBinaryAdapter
             return;
         }
 
+        if (typeof(T) == typeof(DateTime))
+        {
+            UniversalBinaryAdapter<DateTime>.Default = (
+                saver: (bw, value) => bw.Write(value.ToBinary()),
+                loader: br => DateTime.FromBinary(br.ReadInt64())
+            );
+            return;
+        }
+
         if (UniversalBinaryAdapter.InternalUtils.TryCreateForUnmanaged<T>(out var adapter))
         {
             Default = adapter;
@@ -146,6 +163,7 @@ public static class UniversalBinaryAdapterExt
     /// <param name="bw"></param>
     /// <param name="value"></param>
     public static void WriteData<T>(this BinaryWriter bw, T value)
+        where T : notnull
     {
         var adapter = UniversalBinaryAdapter<T>.DefaultOrThrow;
         adapter.Save(bw, value);
@@ -158,6 +176,7 @@ public static class UniversalBinaryAdapterExt
     /// <param name="br"></param>
     /// <returns></returns>
     public static T ReadData<T>(this BinaryReader br)
+        where T : notnull
     {
         var adapter = UniversalBinaryAdapter<T>.DefaultOrThrow;
         return adapter.Load(br);

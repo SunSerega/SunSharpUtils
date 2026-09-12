@@ -29,7 +29,6 @@ namespace SunSharpUtils.DataStash;
 // - Versioning in universal binary format
 // --- Require block structs to have versioning attribute
 // --- Add versioning to file header
-// - Explicit support for DateTime in binary format (use .ToBinary and .FromBinary)
 // - Reading data (including both pending and sealed files) per client request
 // - Filling in data from an older format (to upgrade VRCT to use DataStash)
 // - Check out how consolidation config sim looks in logs

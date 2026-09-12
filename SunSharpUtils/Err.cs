@@ -100,8 +100,7 @@ public static class Err<TException>
     /// <param name="exception"></param>
     /// <param name="filter"></param>
     /// <returns></returns>
-    public static Boolean TryCatch<T>(Func<T> body, [NotNullWhen(true)] out T? result, [NotNullWhen(false)] out TException? exception, Predicate<TException>? filter = null)
-        where T : notnull
+    public static Boolean TryCatch<T>(Func<T> body, [MaybeNullWhen(false)] out T result, [NotNullWhen(false)] out TException? exception, Predicate<TException>? filter = null)
     {
         try
         {
