@@ -6,14 +6,13 @@ using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 using SunSharpUtils.Ext.Expressions;
 using SunSharpUtils.Ext.Linq;
 
 namespace SunSharpUtils.Ext.UniversalBin;
-
-//TODO Write tests
 
 //TODO Get up to speed with StructSerializer in "vid list" solution and then split this file, so I have 1 per global type here
 
@@ -121,7 +120,10 @@ public static class UniversalBinaryAdapter
         public static ConcurrentDictionary<Type, Func<IUniversalBinaryAdapter?>> AllDefaults { get; } = [];
         public static IUniversalBinaryAdapter GetDefaultForType(Type t)
         {
-            if (!AllDefaults.TryGetValue(t, out var factory) || factory.Invoke() is not { } adapter)
+            RuntimeHelpers.RunClassConstructor(typeof(UniversalBinaryAdapter<>).MakeGenericType(t).TypeHandle);
+            if (!AllDefaults.TryGetValue(t, out var factory))
+                throw new InvalidOperationException($"{nameof(UniversalBinaryAdapter<>)}<{t}> is not initialized");
+            if (factory.Invoke() is not { } adapter)
                 throw new InvalidOperationException($"Default {nameof(UniversalBinaryAdapter<>)} is not registered for type {t.FullName}");
             return adapter;
         }
@@ -233,26 +235,27 @@ public static class UniversalBinaryAdapter
                 if (!version_type.IsAssignableTo(typeof(IEquatable<>).MakeGenericType(version_type)))
                     throw new InvalidOperationException($"The {nameof(VersionedDataAttribute)} on type {typeof(T)} has a Version {current_version} of type {version_type}, which does not implement IEquatable<{version_type}>");
 
-                var old_version_types = typeof(T).GetCustomAttributes<VersionedDataOldVersionAttribute>(inherit: false)
+                var version_types = typeof(T).GetCustomAttributes<VersionedDataOldVersionAttribute>(inherit: false)
                     .ToDictionary(attr => attr.Version, attr => attr.OldVersionDataType);
-                old_version_types.Keys.ForEach(version =>
+                version_types.Keys.ForEach(version =>
                 {
                     if (version.GetType() != version_type)
                         throw new InvalidOperationException($"The {nameof(VersionedDataOldVersionAttribute)} on type {typeof(T)} has an old version {version} of type {version.GetType()}, which is not the same as the current version type {version_type}");
                 });
+                version_types.Add(current_version, typeof(T));
 
-                var old_versions = new Dictionary<Object, (Type data_type, Func<Object, Object> upgrade)>
+                var version_infos = new Dictionary<Object, (Type data_type, Func<Object, Object> upgrade)>
                 {
                     [current_version] = (typeof(T), o => o)
                 };
-                old_version_types.Keys.OrderDescending().Prepend(current_version).PairwiseForEach((v2, v1) =>
+                version_types.Keys.OrderDescending().PairwiseForEach((v2, v1) =>
                 {
-                    var data_type1 = old_version_types[v1];
-                    var data_type2 = old_version_types[v2];
-                    var old_version_interface = typeof(IVersionedDataOldVersion<>).MakeGenericType(data_type1);
-                    if (!data_type2.IsAssignableTo(old_version_interface))
-                        throw new InvalidOperationException($"The {nameof(VersionedDataOldVersionAttribute)} on type {typeof(T)} has an old version {v2} of type {data_type2}, which does not implement IVersionedDataOldVersion<{data_type1}> for the next version {v1}");
-                    var mi_upgrade = old_version_interface.GetInterfaceMap(old_version_interface).TargetMethods.Single();
+                    var data_type1 = version_types[v1];
+                    var data_type2 = version_types[v2];
+                    var old_version_interface = typeof(IVersionedDataOldVersion<>).MakeGenericType(data_type2);
+                    if (!data_type1.IsAssignableTo(old_version_interface))
+                        throw new InvalidOperationException($"The {nameof(VersionedDataOldVersionAttribute)} on type {typeof(T)} has an old version {v1} of type {data_type1}, which does not implement {nameof(IVersionedDataOldVersion<>)}<{data_type2}> for the next version {v2}");
+                    var mi_upgrade = data_type1.GetInterfaceMap(old_version_interface).TargetMethods.Single();
 
                     var p_old_obj = Expression.Parameter(typeof(Object), "o");
 
@@ -266,12 +269,12 @@ public static class UniversalBinaryAdapter
                                 ),
                                 typeof(Object)
                             ),
-                            Expression.Constant(old_versions[v1])
+                            Expression.Constant(version_infos[v2].upgrade)
                         ),
                         p_old_obj
                     );
 
-                    old_versions.Add(v2, (data_type2, e_upgrade.Compile()));
+                    version_infos.Add(v1, (data_type1, e_upgrade.Compile()));
                 });
 
 
@@ -289,11 +292,11 @@ public static class UniversalBinaryAdapter
                         var version = version_adapter.Load(br);
                         if (version.Equals(current_version)) //TODO Use IEquatable<>
                             return load_unversioned(br);
-                        if (!old_versions.TryGetValue(version, out var old_version))
+                        if (!version_infos.TryGetValue(version, out var old_version_info))
                             throw new InvalidOperationException($"Type {typeof(T)} has no registered data type for old version {version}");
-                        var data_adapter = GetDefaultForType(old_version.data_type);
+                        var data_adapter = GetDefaultForType(old_version_info.data_type);
                         var old_data = data_adapter.Load(br);
-                        return (T)old_version.upgrade(old_data);
+                        return (T)old_version_info.upgrade(old_data);
                     },
                 };
             }

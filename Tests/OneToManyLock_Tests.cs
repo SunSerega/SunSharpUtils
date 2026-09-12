@@ -9,11 +9,11 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace SunSharpUtils.Threading.Tests;
 
-[TestClass()]
+[TestClass]
 public class OneToManyLock_Tests
 {
 
-    [TestMethod()]
+    [TestMethod]
     public void VisualStressTest()
     {
         var l = new OneToManyLock();
