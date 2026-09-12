@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 
 using SunSharpUtils.DataStash;
+using SunSharpUtils.Ext.UniversalBin;
 
 namespace Tests;
 
@@ -32,22 +33,24 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
     public static class NetworkData
     {
 
-        public readonly struct AddA
+        [AutoSerializedData]
+        public struct AddA
         {
-            public required FileData.A Content { get; init; }
+            public required FileData.A Content;
         }
 
-        public readonly struct AddB
+        [AutoSerializedData]
+        public struct AddB
         {
-            public required String ParentId { get; init; }
-            public readonly FileData.B Content { get; init; }
+            public required String ParentId;
+            public required FileData.B Content;
         }
 
-        public readonly struct AddC
+        [AutoSerializedData]
+        public struct AddC
         {
-            //TODO How do I properly support nullable classes in RPC?
-            public required String? ParentId { get; init; }
-            public readonly FileData.C Content { get; init; }
+            public required String? ParentId;
+            public required FileData.C Content;
         }
 
     }
@@ -55,22 +58,28 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
     public static class FileData
     {
 
-        public readonly struct A
+        [AutoSerializedData]
+        [VersionedData(Version = 1)]
+        public struct A
         {
-            public required String Id { get; init; }
-            public required UInt32 X { get; init; }
+            public required String Id;
+            public required UInt32 X;
         }
 
-        public readonly struct B
+        [AutoSerializedData]
+        [VersionedData(Version = 1)]
+        public struct B
         {
-            public readonly String Id { get; init; }
-            public required UInt64 X { get; init; }
+            public required String Id;
+            public required UInt64 X;
         }
 
-        public readonly struct C
+        [AutoSerializedData]
+        [VersionedData(Version = 1)]
+        public struct C
         {
-            public readonly String Id { get; init; }
-            public required UInt64 X { get; init; }
+            public required String Id;
+            public required UInt64 X;
         }
 
     }

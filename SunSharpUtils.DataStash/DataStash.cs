@@ -26,9 +26,6 @@ using SunSharpUtils.WinSvc;
 namespace SunSharpUtils.DataStash;
 
 //TODO Things left until initial version:
-// - Versioning in universal binary format
-// --- Require block structs to have versioning attribute
-// --- Add versioning to file header
 // - Reading data (including both pending and sealed files) per client request
 // - Filling in data from an older format (to upgrade VRCT to use DataStash)
 // - Check out how consolidation config sim looks in logs
@@ -1020,6 +1017,8 @@ public abstract class DataStash<TTypedContent> : DataStash
 
     }
 
+    [AutoSerializedData]
+    [VersionedData(Version = 1)]
     private readonly struct FileHeader()
     {
         public const UInt32 ExpectedMagicNumber = 0xDA7A57A5;

@@ -11,6 +11,7 @@ using Microsoft.CodeAnalysis.Text;
 
 using SunSharpUtils.DataStash.Analyzer;
 using SunSharpUtils.Ext.Linq;
+using SunSharpUtils.Ext.UniversalBin;
 
 //TODO Split the RPC out to a separate library?
 // - 2 libs cause 1 for attribute, 1 for analyzer
@@ -395,9 +396,8 @@ internal class CodeGenerator : IIncrementalGenerator
 
                 }
             }
-            foreach (var kv in file_blocks)
+            foreach (var (network_data_type, file_data_type, model_type) in file_blocks.Values)
             {
-                var model_type = kv.Value.model_type;
                 if (!model_type.ValidateAsPartialClass(context, "DS006", "DS007"))
                     return;
                 if (!SymbolEqualityComparer.Default.Equals(model_type.ContainingType, typed_content_type))
@@ -411,6 +411,17 @@ internal class CodeGenerator : IIncrementalGenerator
                         args: [model_type.ToDisplayString(), typed_content_type.ToDisplayString()]
                     );
                     return;
+                }
+                if (!file_data_type.GetAttributes().Any(attrib => attrib.AttributeClass?.Name == nameof(VersionedDataAttribute)))
+                {
+                    file_data_type.ReportOnAllDeclaringSyntax(
+                        context,
+                        id: "DS009",
+                        title: "Missing [VersionedData] attribute on file data type",
+                        messageFormat: "File data type '{0}' should have a [VersionedData] attribute",
+                        DiagnosticSeverity.Warning,
+                        args: [file_data_type.ToDisplayString()]
+                    );
                 }
             }
             var all_parent_model_names = typed_model_parents.Values

@@ -155,6 +155,8 @@ public static class UniversalBinaryAdapter
             // - Leave not reflection at runtime
             // - Avoid Object type
 
+            //TODO Use the current GetDefaultForType, but also update the created adapter when Default changes
+
             void save_unversioned(BinaryWriter bw, T value)
             {
                 foreach (var (field, is_nullable_class, nullable_struct_base) in fields)
