@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Threading;
 
 using SunSharpUtils.DataStash;
@@ -34,10 +35,6 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
         public readonly struct AddA
         {
             public required FileData.A Content { get; init; }
-        }
-        public readonly struct CloseA
-        {
-            public required String Id { get; init; }
         }
 
         public readonly struct AddB
@@ -78,8 +75,11 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
 
     }
 
+    //TODO There is a bunch of generatable boilerplate still here
+    // - But for these methods, I'm not sure if I might want a custom implementation at some point
+    // - Need to first implement this for Kate and VRCT, to see an example of less test-y usage
     public sealed partial class TypedContent : ITypedContent<TypedContent, TypedResaveContext>
-        , ITypedContentWithRootBlock<NetworkData.AddA, FileData.A, TypedContent.A>, ITypedContentWithCloseableBlock<NetworkData.CloseA, TypedContent.A>
+        , ITypedContentWithRootBlock<NetworkData.AddA, FileData.A, TypedContent.A>, ITypedContentWithCloseableBlock<String, TypedContent.A>
         , ITypedContentWithChildBlock<NetworkData.AddB, FileData.B, TypedContent.A, TypedContent.B>
         , ITypedContentWithChildBlock<NetworkData.AddC, FileData.C, TypedContent.A?, TypedContent.C>
     {
@@ -88,12 +88,6 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
         private Dictionary<String, C> GlobalC { get; } = [];
         private List<IGlobalContentModel> OrderedChildren { get; } = [];
 
-        //TODO There is a bunch of generatable boilerplate still here
-        // - But for these methods, I'm not sure if I might want a custom implementation at some point
-        // - Need to first implement this for Kate and VRCT, to see an example of less test-y usage
-
-        public Boolean TryGetOpenModel(NetworkData.CloseA data, [MaybeNullWhen(false)] out A result) =>
-            this.AllA.TryGetValue(data.Id, out result);
         public Boolean TryGetParent(NetworkData.AddB data, [MaybeNullWhen(false)] out A result) =>
             this.AllA.TryGetValue(data.ParentId, out result);
         public Boolean TryGetParent(NetworkData.AddC data, [MaybeNullWhen(false)] out A? result)
@@ -106,8 +100,26 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             return this.AllA.TryGetValue(data.ParentId, out result);
         }
 
-        public Boolean TryGetModel(BlockLocation location, [MaybeNullWhen(false)] out A model) =>
-            this.LocationToA.TryGetValue(location, out model);
+        public Boolean TryGetModel(BlockLocation location, [MaybeNullWhen(false)] out A result) =>
+            this.LocationToA.TryGetValue(location, out result);
+
+        public Boolean TryCloseModel(String key, [MaybeNullWhen(false)] out A result)
+        {
+            if (!this.AllA.TryGetValue(key, out result))
+                return false;
+            if (!result.IsOpen)
+                return false;
+            result.IsOpen = false;
+            return true;
+        }
+
+        public Boolean CollectAllOpenModels(out A[] results)
+        {
+            results = this.AllA.Values.Where(a => a.IsOpen).ToArray();
+            return results.Length != 0;
+        }
+
+        public static String GetModelKey(A model) => model.Id;
 
         public static FileData.A ParseNetworkPacket(NetworkData.AddA data) => data.Content;
         public static FileData.B ParseNetworkPacket(NetworkData.AddB data) => data.Content;
@@ -191,6 +203,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
         {
             public required String Id { get; init; }
             public required UInt32 X { get; init; }
+            public Boolean IsOpen { get; set; } = true;
             private Dictionary<String, B> AllB { get; } = [];
             private Dictionary<String, C> AllC { get; } = [];
             private List<IAContentModel> OrderedChildren { get; } = [];

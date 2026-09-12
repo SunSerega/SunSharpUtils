@@ -30,8 +30,6 @@ namespace SunSharpUtils.DataStash;
 // --- Require block structs to have versioning attribute
 // --- Add versioning to file header
 // - Explicit support for DateTime in binary format (use .ToBinary and .FromBinary)
-// - Add system to mark some blocks as open when created
-// --- RPC method to compare list of open models client side to server side (close forgotten blocks and report to client what isn't actually open server side)
 // - Reading data (including both pending and sealed files) per client request
 // - Filling in data from an older format (to upgrade VRCT to use DataStash)
 // - Check out how consolidation config sim looks in logs
@@ -53,7 +51,7 @@ namespace SunSharpUtils.DataStash;
 // - I think I want to first find the use case
 
 /// <summary>
-/// Marks data stash implementation for auto-generation of implementation boilerplate
+/// Marks data stash for auto-generation of implementation boilerplate
 /// </summary>
 [AttributeUsage(AttributeTargets.Class)]
 public sealed class AutoDataStashAttribute : Attribute;
@@ -500,27 +498,58 @@ public abstract class DataStash<TTypedContent> : DataStash
         return use.Invoke(location);
     });
 
+    #region PendingCollect
+
     /// <summary>
     /// </summary>
-    protected delegate Boolean GetFromPendingContentCallback<T>(TTypedContent content, [MaybeNullWhen(false)] out T result);
+    protected delegate Boolean PendingCollectCallback<T>(TTypedContent content, [MaybeNullWhen(false)] out T result);
+
     /// <summary>
     /// </summary>
-    protected T GetFromPendingContent<T>(GetFromPendingContentCallback<T> try_get, Func<T>? on_not_found = null) => this.l_all_pending_state_files.ManyLocked(() =>
+    protected T PendingCollectOne<T>(PendingCollectCallback<T> try_get, Func<T>? on_not_found = null)
     {
-        var results = new List<(FileId file_id, T ret)>(1);
+        var results = this.PendingCollect(try_get);
+        on_not_found ??= () =>
+            throw new InvalidOperationException($"Value of type {typeof(T)} not found in pending files");
+        if (results.Length == 0)
+            return on_not_found.Invoke();
+        if (results.Length > 1)
+            throw new InvalidOperationException($"Value of type {typeof(T)} found in multiple pending files: {results.Select(r => r.file_id).JoinToString("; ")}");
+        return results[0].item;
+    }
+
+    /// <summary>
+    /// </summary>
+    protected Dictionary<TKey, (IFileId file_id, TValue value)> PendingCollectAndOrganize<TKey, TValue>(PendingCollectCallback<TValue[]> try_get, Func<TValue, TKey> get_key)
+        where TKey : notnull
+    {
+        var collected_items = this.PendingCollect(try_get);
+        var dict = new Dictionary<TKey, (IFileId file_id, TValue value)>();
+        foreach (var (file_id, values) in collected_items)
+        {
+            foreach (var value in values)
+            {
+                var key = get_key(value);
+                if (!dict.TryAdd(key, (file_id, value)))
+                    throw new InvalidOperationException($"Duplicate key [{key}] when organizing collected {typeof(TValue)} items. Found in {dict[key].file_id} and {file_id}");
+            }
+        }
+        return dict;
+    }
+    /// <summary>
+    /// </summary>
+    protected (IFileId file_id, T item)[] PendingCollect<T>(PendingCollectCallback<T> try_get) => this.l_all_pending_state_files.ManyLocked(() =>
+    {
+        var results = new List<(IFileId file_id, T ret)>(this.all_pending_state_files.Count);
         foreach (var pending_file_group in this.all_pending_state_files.Values)
         {
             if (try_get.Invoke(pending_file_group.Content, out var result))
                 results.Add((pending_file_group.Id, result));
         }
-        on_not_found ??= () =>
-            throw new InvalidOperationException($"Value of type {typeof(T)} not found in pending files");
-        if (results.Count == 0)
-            return on_not_found.Invoke();
-        if (results.Count > 1)
-            throw new InvalidOperationException($"Value of type {typeof(T)} found in multiple pending files: {results.Select(r => r.file_id).JoinToString("; ")}");
-        return results[0].ret;
+        return results.ToArray();
     });
+
+    #endregion
 
     /// <summary>
     /// </summary>
@@ -627,26 +656,57 @@ public abstract class DataStash<TTypedContent> : DataStash
     /// <summary>
     /// Implemented by typed file content type to mark a model as openable (open when created, closed through an explicit call)
     /// </summary>
-    /// <typeparam name="TNetworkData"></typeparam>
+    /// <typeparam name="TKey"></typeparam>
     /// <typeparam name="TModel"></typeparam>
-    public interface ITypedContentWithCloseableBlock<TNetworkData, TModel>
+    public interface ITypedContentWithCloseableBlock<TKey, TModel>
         where TModel : class
     {
         /// <summary>
         /// </summary>
-        public Boolean TryGetModel(BlockLocation location, [MaybeNullWhen(false)] out TModel model);
+        public abstract Boolean TryGetModel(BlockLocation location, [MaybeNullWhen(false)] out TModel result);
         /// <summary>
-        /// Tries to get a model to close for the given network data
         /// </summary>
-        public Boolean TryGetOpenModel(TNetworkData data, [MaybeNullWhen(false)] out TModel result);
+        public abstract Boolean TryCloseModel(TKey key, [MaybeNullWhen(false)] out TModel result);
+        /// <summary>
+        /// </summary>
+        public abstract Boolean CollectAllOpenModels(out TModel[] results);
+        /// <summary>
+        /// </summary>
+        public static abstract TKey GetModelKey(TModel model);
     }
 
     #endregion
 
-    private readonly record struct FileId : IEquatable<FileId>, IComparable<FileId>
+    #region FileId
+
+    /// <summary>
+    /// </summary>
+    public interface IFileId : IEquatable<IFileId>
+    {
+        /// <summary>
+        /// </summary>
+        public Boolean TryUsePendingContent(DataStash<TTypedContent> data_stash, Action<TTypedContent> act);
+    }
+
+    private readonly record struct FileId : IFileId, IEquatable<FileId>, IComparable<FileId>
     {
         public required DateOnly Date { get; init; }
         public required Int32 Hour { get; init; }
+
+        public Boolean TryUsePendingContent(DataStash<TTypedContent> data_stash, Action<TTypedContent> act)
+        {
+            var file_id = this;
+            return data_stash.l_all_pending_state_files.ManyLocked(() =>
+            {
+                if (!data_stash.all_pending_state_files.TryGetValue(file_id, out var pending_file_group))
+                    return false;
+                act.Invoke(pending_file_group.Content);
+                return true;
+            });
+        }
+
+        public Boolean Equals(IFileId? other) =>
+            other is FileId other_id && this.Equals(other_id);
 
         public static Int32 Compare(FileId f1, FileId f2)
         {
@@ -682,6 +742,8 @@ public abstract class DataStash<TTypedContent> : DataStash
         public override String ToString() => $"{this.Date:yyyy-MM-dd}_{this.Hour:00}";
 
     }
+
+    #endregion
 
     private sealed class PendingFileGroup
     {

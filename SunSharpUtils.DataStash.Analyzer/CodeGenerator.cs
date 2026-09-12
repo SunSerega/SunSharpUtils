@@ -286,7 +286,7 @@ internal class CodeGenerator : IIncrementalGenerator
 
             var file_blocks = new Dictionary<String, (INamedTypeSymbol network_data_type, INamedTypeSymbol file_data_type, INamedTypeSymbol model_type)>();
             var typed_model_parents = new Dictionary<String, INamedTypeSymbol?>();
-            var closable_typed_models = new Dictionary<String, (INamedTypeSymbol network_data_type, INamedTypeSymbol model_type)>();
+            var closable_typed_models = new Dictionary<String, (INamedTypeSymbol key_type, INamedTypeSymbol model_type)>();
             {
                 var core_implemented = false;
                 foreach (var impl_type in typed_content_type.Interfaces)
@@ -376,9 +376,9 @@ internal class CodeGenerator : IIncrementalGenerator
                                 );
                                 continue;
                             }
-                            var network_data_type = (INamedTypeSymbol)impl_type.TypeArguments[0];
+                            var key_type = (INamedTypeSymbol)impl_type.TypeArguments[0];
                             var model_type = (INamedTypeSymbol)impl_type.TypeArguments[1];
-                            closable_typed_models.Add(model_type.Name, (network_data_type, model_type));
+                            closable_typed_models.Add(model_type.Name, (key_type, model_type));
                             break;
                         }
                         default:
@@ -422,6 +422,7 @@ internal class CodeGenerator : IIncrementalGenerator
             {
                 gen += $"using System;";
                 gen += $"using System.IO;";
+                gen += $"using System.Linq;";
                 gen += $"using System.Diagnostics.CodeAnalysis;";
                 gen += $"";
                 gen += $"using SunSharpUtils;";
@@ -465,7 +466,7 @@ internal class CodeGenerator : IIncrementalGenerator
                             if (typed_model_parents[model_type.Name] is { } parent_model_type)
                             {
                                 var parent_can_be_null = parent_model_type.NullableAnnotation.HasFlag(NullableAnnotation.Annotated);
-                                gen += $"var parent = this.GetFromPendingContent<{parent_model_type.ToDisplayString()}>((content, [MaybeNullWhen(false)] out result) => content.TryGetParent(network_data, out result){(parent_can_be_null ? ", on_not_found: () => null" : null)});";
+                                gen += $"var parent = this.PendingCollectOne<{parent_model_type.ToDisplayString()}>((content, [MaybeNullWhen(false)] out result) => content.TryGetParent(network_data, out result){(parent_can_be_null ? ", on_not_found: () => null" : null)});";
                                 if (parent_can_be_null)
                                 {
                                     gen += $"if (parent is {{ }})";
@@ -530,13 +531,58 @@ internal class CodeGenerator : IIncrementalGenerator
                         gen += $"";
                     }
 
-                    foreach (var (network_data_type, model_type) in closable_typed_models.Values)
+                    foreach (var (key_type, model_type) in closable_typed_models.Values)
                     {
-                        gen += $"public void {network_data_type.Name}({network_data_type.ToDisplayString()} network_data)";
+                        gen += $"public void Close{model_type.Name}({key_type.ToDisplayString()} key)";
                         gen.AddBlock(gen =>
                         {
-                            gen += $"var model = this.GetFromPendingContent<{model_type.ToDisplayString()}>((content, [MaybeNullWhen(false)] out result) => content.TryGetOpenModel(network_data, out result));";
+                            gen += $"var model = this.PendingCollectOne<{model_type.ToDisplayString()}>((content, [MaybeNullWhen(false)] out result) => content.TryCloseModel(key, out result));";
                             gen += $"model.CommonInfo.Location.CloseBlock();";
+                        });
+                        gen += $"";
+                    }
+
+                    foreach (var (key_type, model_type) in closable_typed_models.Values)
+                    {
+                        gen += $"public {key_type.ToDisplayString()}[] SyncAllOpen{model_type.Name}({key_type.ToDisplayString()}[] producer_side_keys)";
+                        gen.AddBlock(gen =>
+                        {
+                            gen.AddLine(gen =>
+                            {
+                                gen *= "var locally_open = this.PendingCollectAndOrganize<";
+                                gen *= key_type.ToDisplayString();
+                                gen *= ", ";
+                                gen *= model_type.ToDisplayString();
+                                gen *= ">((content, [MaybeNullWhen(false)] out result) => content.CollectAllOpenModels(out result), ";
+                                gen *= typed_content_type.ToDisplayString();
+                                gen *= ".GetModelKey);";
+                            });
+                            gen += $"";
+                            gen += $"// Don't force close recently created models";
+                            gen += $"var max_force_close_record_time = DateTime.UtcNow.AddMinutes(-10);";
+                            gen += $"foreach (var key in locally_open.Keys.Except(producer_side_keys).ToArray())";
+                            gen.AddBlock(gen =>
+                            {
+                                gen += $"var (file_id, model) = locally_open[key];";
+                                gen += $"if (model.CommonInfo.RecordTime > max_force_close_record_time)";
+                                gen.AddTab(gen =>
+                                {
+                                    gen += $"continue;";
+                                });
+                                gen += $"// Doesn't matter if the model could not be closed, this method is only eventually consistent";
+                                gen += $"file_id.TryUsePendingContent(this, content =>";
+                                gen.AddBlock(gen =>
+                                {
+                                    gen += $"if (content.TryCloseModel(key, out var model))";
+                                    gen.AddTab(gen =>
+                                    {
+                                        gen += $"Prompt.Notify($\"{{this}}: Force closed {{model}}, because producer does not recognize it\");";
+                                    });
+                                }, "{", "});");
+                                gen += $"locally_open.Remove(key);";
+                            });
+                            gen += $"";
+                            gen += $"return locally_open.Keys.ToArray();";
                         });
                         gen += $"";
                     }

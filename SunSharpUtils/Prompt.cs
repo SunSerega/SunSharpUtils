@@ -65,7 +65,7 @@ public static class Prompt
     {
         var res = AskAny(title, content, Array.ConvertAll(options, e => e.ToString()));
         if (res is null) return null;
-        return (TEnum)Enum.Parse(typeof(TEnum), res);
+        return Enum.Parse<TEnum>(res);
     }
 
 }
