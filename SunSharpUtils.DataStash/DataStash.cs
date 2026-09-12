@@ -370,6 +370,8 @@ public abstract class DataStash<TTypedContent> : DataStash
         Prompt.Notify($"Initialized {nameof(DataStash<>)} ({this.GetType().Name})");
     }
 
+    #region ReadFile
+
     private TTypedContent ReadSealedFileContent(FileId file_id)
     {
         var file_path = Path.Combine(this.root_dir.FullName, $"{file_id}{file_ext}");
@@ -487,6 +489,8 @@ public abstract class DataStash<TTypedContent> : DataStash
         }
 
     }
+
+    #endregion
 
     /// <summary>
     /// </summary>
@@ -1308,13 +1312,14 @@ public abstract class DataStash<TTypedContent> : DataStash
                 {
                     try
                     {
+                        this.wh_recompute.Reset();
+
                         var file_ids = this.data_stash.l_all_sealed_state_files
                             .ManyLocked(() => this.data_stash.all_sealed_state_files.ToArray());
                         if (file_ids.Length < 2)
                         {
                             Prompt.Notify($"{this.data_stash}: Not enough files for consolidation");
                             this.wh_recompute.Wait(svc_stop_token);
-                            this.wh_recompute.Reset();
                             continue;
                         }
 
@@ -1329,7 +1334,6 @@ public abstract class DataStash<TTypedContent> : DataStash
                         {
                             Prompt.Notify($"{this.data_stash}: Closest merge time is beyond DateTime.MaxValue: {next_merge_time_double}");
                             this.wh_recompute.Wait(svc_stop_token);
-                            this.wh_recompute.Reset();
                             continue;
                         }
 
@@ -1343,7 +1347,6 @@ public abstract class DataStash<TTypedContent> : DataStash
                             var wait_time = next_merge_dt - now;
                             Prompt.Notify($"{this.data_stash}: Next consolidation is planned to merge {id_merge} => {id_keep} at {next_merge_dt} (in {wait_time})");
                             this.wh_recompute.Wait(wait_time, svc_stop_token);
-                            this.wh_recompute.Reset();
                             continue;
                         }
 
