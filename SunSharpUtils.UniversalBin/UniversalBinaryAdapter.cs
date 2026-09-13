@@ -15,9 +15,6 @@ using SunSharpUtils.Threading;
 
 namespace SunSharpUtils.Ext.UniversalBin;
 
-//TODO Support arrays
-// - Then test
-
 //TODO Get up to speed with StructSerializer in "vid list" solution and then split this file, so I have 1 per global type here
 
 //TODO Interface to define custom default marshaling in any given type
@@ -188,10 +185,17 @@ public static class UniversalBinaryAdapter
                 return () => UniversalBinaryAdapter<TDep>.Default ?? throw new LambdaDependencyMissingException([typeof(TDep)]);
             }
 
-            internal Func<IUniversalBinaryAdapter> AddDependency(Type t)
+            internal (Type t_adapter, Func<IUniversalBinaryAdapter> get_adapter, MethodInfo mi_save, MethodInfo mi_load) AddDependency(Type t)
             {
+                var t_adapter = typeof(UniversalBinaryAdapter<>).MakeGenericType(t);
+
                 var mi = typeof(InitContext).GetMethod(nameof(AddDependency), BindingFlags.Public | BindingFlags.Instance, Type.EmptyTypes) ?? throw null!;
-                return (Func<IUniversalBinaryAdapter>)(mi.MakeGenericMethod(t).Invoke(this, parameters: []) ?? throw null!);
+                var get_adapter = (Func<IUniversalBinaryAdapter>)(mi.MakeGenericMethod(t).Invoke(this, parameters: []) ?? throw null!);
+
+                var mi_save = t_adapter.GetMethod(nameof(UniversalBinaryAdapter<>.Save), BindingFlags.Public | BindingFlags.Instance, types: [typeof(BinaryWriter), t]) ?? throw null!;
+                var mi_load = t_adapter.GetMethod(nameof(UniversalBinaryAdapter<>.Load), BindingFlags.Public | BindingFlags.Instance, types: [typeof(BinaryReader)]) ?? throw null!;
+
+                return (t_adapter, get_adapter, mi_save, mi_load);
             }
 
             /// <summary>
@@ -326,6 +330,106 @@ public static class UniversalBinaryAdapter
             return true;
         }
 
+        private static LambdaWithDeps<T[]> CreateArray<T>()
+            where T : notnull
+        {
+            return new(context =>
+            {
+                var (t_element_adapter, get_element_adapter, mi_save, mi_load) = context.AddDependency(typeof(T));
+
+                var p_bw = Expression.Parameter(typeof(BinaryWriter), "bw");
+                var p_array = Expression.Parameter(typeof(T[]), "array");
+                var p_br = Expression.Parameter(typeof(BinaryReader), "br");
+                var v_result = Expression.Variable(typeof(T[]), "result");
+
+                var p_element_adapter = Expression.Parameter(t_element_adapter, "element_adapter");
+
+                var e_saver_lines = new List<Expression>();
+                var e_loader_lines = new List<Expression>();
+
+                var v_length = Expression.Variable(typeof(Int32), "length");
+                var v_i = Expression.Variable(typeof(Int32), "i");
+
+                e_saver_lines.Add(
+                    Expression.Assign(
+                        left: v_length,
+                        right: Expression.ArrayLength(p_array)
+                    )
+                );
+                e_saver_lines.Add(
+                    ExpressionInvokeHelper<BinaryWriter, Int32>.Wrap((bw, length) => bw.Write(length), p_bw, v_length)
+                );
+                e_loader_lines.Add(
+                    Expression.Assign(
+                        left: v_length,
+                        right: ExpressionInvokeHelper<BinaryReader>.Wrap(br => br.ReadInt32(), p_br)
+                    )
+                );
+                e_loader_lines.Add(
+                    Expression.Assign(
+                        left: v_result,
+                        right: Expression.NewArrayBounds(typeof(T), v_length)
+                    )
+                );
+
+                var l_loop_begin = Expression.Label("loop_begin");
+                var l_loop_end = Expression.Label("loop_end");
+
+                void AddToBoth(Expression line)
+                {
+                    e_saver_lines.Add(line);
+                    e_loader_lines.Add(line);
+                }
+
+                AddToBoth(Expression.Assign(v_i, Expression.Constant(0)));
+                AddToBoth(Expression.Label(l_loop_begin));
+                AddToBoth(
+                    Expression.IfThen(
+                        test: Expression.GreaterThanOrEqual(v_i, v_length),
+                        ifTrue: Expression.Break(l_loop_end)
+                    )
+                );
+
+                e_saver_lines.Add(
+                    Expression.Call(p_element_adapter, mi_save, p_bw, Expression.ArrayAccess(p_array, v_i))
+                );
+                e_loader_lines.Add(
+                    Expression.Assign(
+                        left: Expression.ArrayAccess(v_result, v_i),
+                        right: Expression.Call(p_element_adapter, mi_load, p_br)
+                    )
+                );
+
+                AddToBoth(Expression.PreIncrementAssign(v_i));
+                AddToBoth(Expression.Goto(l_loop_begin));
+                AddToBoth(Expression.Label(l_loop_end));
+                e_loader_lines.Add(v_result);
+
+                var e_saver_lambda = Expression.Lambda(Expression.Block(variables: [v_length, v_i], e_saver_lines), parameters: [p_element_adapter]);
+                var e_loader_lambda = Expression.Lambda(Expression.Block(variables: [v_length, v_i, v_result], e_loader_lines), parameters: [p_element_adapter]);
+
+                return () =>
+                {
+                    var e_element_adapter = Expression.Constant(get_element_adapter());
+                    var e_saver = Expression.Lambda<UniversalBinaryAdapter<T[]>.SaverDelegate>(Expression.Invoke(e_saver_lambda, e_element_adapter), p_bw, p_array);
+                    var e_loader = Expression.Lambda<UniversalBinaryAdapter<T[]>.LoaderDelegate>(Expression.Invoke(e_loader_lambda, e_element_adapter), p_br);
+                    return (e_saver.Compile(), e_loader.Compile());
+                };
+            });
+        }
+        public static Boolean TryCreateArray<T>([NotNullWhen(true)] out UniversalBinaryAdapter<T>? adapter)
+            where T : notnull
+        {
+            if (!typeof(T).IsArray || typeof(T).GetArrayRank() is not 1)
+            {
+                adapter = null;
+                return false;
+            }
+            var mi_CreateArray = typeof(InternalUtils).GetMethod(nameof(CreateArray), BindingFlags.NonPublic | BindingFlags.Static, Type.EmptyTypes) ?? throw null!;
+            adapter = (UniversalBinaryAdapter<T>?)mi_CreateArray.MakeGenericMethod(typeof(T).GetElementType() ?? throw null!).Invoke(null, null) ?? throw null!;
+            return true;
+        }
+
         public static Boolean TryCreateAuto<T>([NotNullWhen(true)] out UniversalBinaryAdapter<T>? adapter)
             where T : notnull
         {
@@ -345,15 +449,11 @@ public static class UniversalBinaryAdapter
                 var e_dep_parameters = new List<ParameterExpression>();
                 (LambdaExpression e_save, LambdaExpression e_load) AddDependency(Type t)
                 {
-                    var getter = context.AddDependency(t);
-                    var t_adapter = typeof(UniversalBinaryAdapter<>).MakeGenericType(t);
+                    var (t_adapter, get_adapter, mi_save, mi_load) = context.AddDependency(t);
 
                     var p_adapter = Expression.Parameter(t_adapter, $"adapter_for_{t.Name}");
-                    e_dep_arguments_getters.Add(() => Expression.Constant(getter.Invoke()));
+                    e_dep_arguments_getters.Add(() => Expression.Constant(get_adapter.Invoke()));
                     e_dep_parameters.Add(p_adapter);
-
-                    var mi_save = t_adapter.GetMethod(nameof(UniversalBinaryAdapter<>.Save), BindingFlags.Public | BindingFlags.Instance, types: [typeof(BinaryWriter), t]) ?? throw null!;
-                    var mi_load = t_adapter.GetMethod(nameof(UniversalBinaryAdapter<>.Load), BindingFlags.Public | BindingFlags.Instance, types: [typeof(BinaryReader)]) ?? throw null!;
 
                     var p_value = Expression.Parameter(t, "value");
 
@@ -783,6 +883,12 @@ public abstract class UniversalBinaryAdapter<T> : IUniversalBinaryAdapter
                 saver: (bw, value) => bw.Write(value.ToBinary()),
                 loader: br => DateTime.FromBinary(br.ReadInt64())
             );
+            return;
+        }
+
+        if (UniversalBinaryAdapter.InternalUtils.TryCreateArray<T>(out var array_adapter))
+        {
+            Default = array_adapter;
             return;
         }
 
