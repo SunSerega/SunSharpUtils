@@ -9,23 +9,6 @@ using SunSharpUtils.Ext.UniversalBin;
 
 namespace Tests;
 
-internal static partial class GenTest1
-{
-
-    static GenTest1()
-    {
-        Method2(123);
-        Method3();
-    }
-
-    [RpcApi]
-    private static partial void Method2(Int32 asd);
-
-    [RpcApi]
-    private static partial Int32 Method3();
-
-}
-
 [AutoDataStash]
 internal sealed partial class ExampleDataStash(String states_dir, CancellationToken svc_stop_token) : DataStash<ExampleDataStash, ExampleDataStash.TypedContent>(states_dir, svc_stop_token)
 {

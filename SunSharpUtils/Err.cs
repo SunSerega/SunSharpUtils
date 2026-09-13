@@ -71,7 +71,7 @@ public static class Err
     }
 
     /// <summary>
-    /// Tries to execute the body function and catches a specific exception type
+    /// Tries to execute the body function and catches any exception
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <param name="body"></param>
@@ -79,7 +79,7 @@ public static class Err
     /// <param name="exception"></param>
     /// <param name="filter"></param>
     /// <returns></returns>
-    public static Boolean TryCatch<T>(Func<T> body, [NotNullWhen(true)] out T? result, [NotNullWhen(false)] out Exception? exception, Predicate<Exception>? filter = null) where T : notnull =>
+    public static Boolean TryCatch<T>(Func<T> body, [MaybeNullWhen(false)] out T result, [NotNullWhen(false)] out Exception? exception, Predicate<Exception>? filter = null) where T : notnull =>
         Err<Exception>.TryCatch(body, out result, out exception, filter);
 
 }

@@ -9,12 +9,15 @@
 		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
 		<PackageReference Include="MSTest" Version="3.6.4" />
 	</ItemGroup>
-	
-	<ItemGroup>
-		<ProjectReference Include="..\SunSharpUtils\SunSharpUtils.csproj" />
-		<ProjectReference Include="..\SunSharpUtils.DataStash\SunSharpUtils.DataStash.csproj" />
-		<ProjectReference Include="..\SunSharpUtils.DataStash.Analyzer\SunSharpUtils.DataStash.Analyzer.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
-		<ProjectReference Include="..\SunSharpUtils.Ext\SunSharpUtils.Ext.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
-	</ItemGroup>
-	
+    
+    <ItemGroup>
+        <ProjectReference Include="..\SunSharpUtils.UniversalBin\SunSharpUtils.UniversalBin.csproj" />
+        <ProjectReference Include="..\SunSharpUtils.DataStash\SunSharpUtils.DataStash.csproj" />
+    </ItemGroup>
+    
+    <ItemGroup>
+        <ProjectReference Include="..\SunSharpUtils.DataStash.Analyzer\SunSharpUtils.DataStash.Analyzer.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
+        <ProjectReference Include="..\SunSharpUtils.Ext\SunSharpUtils.Ext.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
+    </ItemGroup>
+    
 </Project>

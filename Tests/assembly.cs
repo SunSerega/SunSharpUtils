@@ -1,3 +1,3 @@
 ﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-[assembly: DoNotParallelize]
+[assembly: DoNotParallelize] //TODO Why?

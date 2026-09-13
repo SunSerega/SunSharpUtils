@@ -13,6 +13,7 @@ namespace SunSharpUtils.Threading.Tests;
 public class OneToManyLock_Tests
 {
 
+    //TODO Put into a separate, non-testing project, so that all tests can be run without a GUI
     [TestMethod]
     public void VisualStressTest()
     {
