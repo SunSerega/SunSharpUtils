@@ -12,9 +12,9 @@ using SunSharpUtils.Ext.Bin;
 using SunSharpUtils.Ext.Exceptions;
 using SunSharpUtils.Ext.Linq;
 using SunSharpUtils.Ext.Math;
-using SunSharpUtils.Ext.UniversalBin;
 using SunSharpUtils.Ids;
 using SunSharpUtils.Threading;
+using SunSharpUtils.UniversalBin;
 using SunSharpUtils.WinSvc;
 
 //TODO Maybe change the namespace using compiler directives?

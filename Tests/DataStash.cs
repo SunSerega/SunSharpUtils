@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading;
 
 using SunSharpUtils.DataStash;
-using SunSharpUtils.Ext.UniversalBin;
+using SunSharpUtils.UniversalBin;
 
 namespace Tests;
 

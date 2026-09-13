@@ -4,7 +4,7 @@ using System.IO;
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-using SunSharpUtils.Ext.UniversalBin;
+using SunSharpUtils.UniversalBin;
 
 namespace Tests.UniversalBin;
 

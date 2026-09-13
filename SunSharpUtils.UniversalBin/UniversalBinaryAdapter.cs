@@ -13,7 +13,7 @@ using SunSharpUtils.Ext.Expressions;
 using SunSharpUtils.Ext.Linq;
 using SunSharpUtils.Threading;
 
-namespace SunSharpUtils.Ext.UniversalBin;
+namespace SunSharpUtils.UniversalBin;
 
 //TODO Get up to speed with StructSerializer in "vid list" solution and then split this file, so I have 1 per global type here
 

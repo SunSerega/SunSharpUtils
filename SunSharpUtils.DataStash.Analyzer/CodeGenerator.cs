@@ -11,7 +11,7 @@ using Microsoft.CodeAnalysis.Text;
 
 using SunSharpUtils.DataStash.Analyzer;
 using SunSharpUtils.Ext.Linq;
-using SunSharpUtils.Ext.UniversalBin;
+using SunSharpUtils.UniversalBin;
 
 //TODO Split the RPC out to a separate library?
 // - 2 libs cause 1 for attribute, 1 for analyzer
@@ -88,7 +88,7 @@ internal class CodeGenerator : IIncrementalGenerator
                     gen += $"using SunSharpUtils;";
                     gen += $"using SunSharpUtils.DataStash;";
                     gen += $"using SunSharpUtils.Ext.Bin;";
-                    gen += $"using SunSharpUtils.Ext.UniversalBin;";
+                    gen += $"using SunSharpUtils.UniversalBin;";
                     gen += $"";
 
                     if (namespace_name is { })
