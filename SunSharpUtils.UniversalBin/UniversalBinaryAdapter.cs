@@ -17,8 +17,6 @@ namespace SunSharpUtils.Ext.UniversalBin;
 
 //TODO Support arrays
 // - Then test
-//TODO Support custom default serialization through an interface
-// - Then test
 
 //TODO Get up to speed with StructSerializer in "vid list" solution and then split this file, so I have 1 per global type here
 
@@ -94,6 +92,33 @@ public sealed class AbstractDataAttribute : Attribute
 }
 
 /// <summary>
+/// Marks type as serializable via <see cref="UniversalBinaryAdapter"/> with a custom default Save/Load implementation
+/// </summary>
+/// <typeparam name="TSelf"></typeparam>
+public interface ISerializableData<TSelf>
+    where TSelf : ISerializableData<TSelf>
+{
+    /// <summary>
+    /// </summary>
+    public static abstract void Save(BinaryWriter bw, TSelf value);
+    /// <summary>
+    /// </summary>
+    public static abstract TSelf Load(BinaryReader br);
+}
+
+/// <summary>
+/// Marks type as serializable via <see cref="UniversalBinaryAdapter"/> with a custom default Save/Load implementation and explicit dependencies on other <see cref="UniversalBinaryAdapter{T}.Default"/> values<br/>
+/// </summary>
+/// <typeparam name="TSelf"></typeparam>
+public interface ISerializableDataWithDeps<TSelf>
+    where TSelf : ISerializableDataWithDeps<TSelf>
+{
+    /// <summary>
+    /// </summary>
+    public static abstract Func<(UniversalBinaryAdapter<TSelf>.SaverDelegate saver, UniversalBinaryAdapter<TSelf>.LoaderDelegate loader)> DefineSaverAndLoader(UniversalBinaryAdapter.LambdaWithDeps<TSelf>.InitContext context);
+}
+
+/// <summary>
 /// Common public utils for <see cref="UniversalBinaryAdapter{T}"/>
 /// </summary>
 public static class UniversalBinaryAdapter
@@ -130,7 +155,7 @@ public static class UniversalBinaryAdapter
         /// </summary>
         public LambdaWithDeps(Func<InitContext, Func<(SaverDelegate saver, LoaderDelegate loader)>> factory_factory)
         {
-            var init_context = new InitContext(this);
+            using var init_context = new InitContext(this);
             try
             {
                 this.factory = factory_factory.Invoke(init_context);
@@ -142,15 +167,18 @@ public static class UniversalBinaryAdapter
         }
         /// <summary>
         /// </summary>
-        public sealed class InitContext(LambdaWithDeps<T> result)
+        public sealed class InitContext(LambdaWithDeps<T> result) : IDisposable
         {
             private readonly LambdaWithDeps<T> result = result;
+            private Boolean is_disposed = false;
 
             /// <summary>
             /// </summary>
             public Func<UniversalBinaryAdapter<TDep>> AddDependency<TDep>()
                 where TDep : notnull
             {
+                if (this.is_disposed)
+                    throw new InvalidOperationException($"Cannot add dependency {typeof(TDep)} to {nameof(LambdaWithDeps<>)}<{typeof(T)}> because init context is already disposed");
                 var result = this.result;
                 UniversalBinaryAdapter<TDep>.DefaultChanged += () =>
                 {
@@ -165,6 +193,11 @@ public static class UniversalBinaryAdapter
                 var mi = typeof(InitContext).GetMethod(nameof(AddDependency), BindingFlags.Public | BindingFlags.Instance, Type.EmptyTypes) ?? throw null!;
                 return (Func<IUniversalBinaryAdapter>)(mi.MakeGenericMethod(t).Invoke(this, parameters: []) ?? throw null!);
             }
+
+            /// <summary>
+            /// Preventing any further dependencies from being added
+            /// </summary>
+            public void Dispose() => this.is_disposed = true;
 
         }
 
@@ -234,6 +267,64 @@ public static class UniversalBinaryAdapter
 
     internal static class InternalUtils
     {
+
+        private static Boolean CheckImplementsSelfRefInterface(Type t, Type interface_generic_type)
+        {
+            foreach (var interface_type in t.GetInterfaces())
+            {
+                if (!interface_type.IsGenericType)
+                    continue;
+                if (interface_type.GetGenericTypeDefinition() != interface_generic_type)
+                    continue;
+                var generic_args = interface_type.GetGenericArguments();
+                if (generic_args.Length != 1)
+                    throw new InvalidOperationException($"Interface {interface_generic_type} on type {t} does not have exactly one generic argument");
+                if (generic_args[0] != t)
+                    continue;
+                return true;
+            }
+            return false;
+        }
+
+        private static LambdaWithDeps<T> CreateCustomWithDeps<T>()
+            where T : ISerializableDataWithDeps<T>
+        {
+            return new(T.DefineSaverAndLoader);
+        }
+        public static Boolean TryCreateCustomWithDeps<T>([NotNullWhen(true)] out UniversalBinaryAdapter<T>? adapter)
+            where T : notnull
+        {
+            if (!CheckImplementsSelfRefInterface(typeof(T), typeof(ISerializableDataWithDeps<>)))
+            {
+                adapter = null;
+                return false;
+            }
+            var mi_CreateCustomWithDeps = typeof(InternalUtils).GetMethod(nameof(CreateCustomWithDeps), BindingFlags.NonPublic | BindingFlags.Static, Type.EmptyTypes) ?? throw null!;
+            adapter = (LambdaWithDeps<T>?)mi_CreateCustomWithDeps.MakeGenericMethod(typeof(T)).Invoke(null, null) ?? throw null!;
+            return true;
+        }
+
+        private static Lambda<T> CreateCustom<T>()
+            where T : ISerializableData<T>
+        {
+            return new()
+            {
+                Saver = T.Save,
+                Loader = T.Load
+            };
+        }
+        public static Boolean TryCreateCustom<T>([NotNullWhen(true)] out UniversalBinaryAdapter<T>? adapter)
+            where T : notnull
+        {
+            if (!CheckImplementsSelfRefInterface(typeof(T), typeof(ISerializableData<>)))
+            {
+                adapter = null;
+                return false;
+            }
+            var mi_CreateCustom = typeof(InternalUtils).GetMethod(nameof(CreateCustom), BindingFlags.NonPublic | BindingFlags.Static, Type.EmptyTypes) ?? throw null!;
+            adapter = (Lambda<T>?)mi_CreateCustom.MakeGenericMethod(typeof(T)).Invoke(null, null) ?? throw null!;
+            return true;
+        }
 
         public static Boolean TryCreateAuto<T>([NotNullWhen(true)] out UniversalBinaryAdapter<T>? adapter)
             where T : notnull
@@ -664,6 +755,18 @@ public abstract class UniversalBinaryAdapter<T> : IUniversalBinaryAdapter
 
     static UniversalBinaryAdapter()
     {
+
+        if (UniversalBinaryAdapter.InternalUtils.TryCreateCustomWithDeps<T>(out var custom_with_deps_adapter))
+        {
+            Default = custom_with_deps_adapter;
+            return;
+        }
+
+        if (UniversalBinaryAdapter.InternalUtils.TryCreateCustom<T>(out var custom_adapter))
+        {
+            Default = custom_adapter;
+            return;
+        }
 
         if (typeof(T) == typeof(String))
         {
