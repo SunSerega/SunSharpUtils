@@ -30,6 +30,8 @@ public class Unmanaged
     public void Test2UnmanagedEnum()
     {
         TestUtils.TestValue(ConsoleColor.Red);
+        TestUtils.TestValue(ConsoleColor.Red, write_func: bw => bw.WriteEnum(ConsoleColor.Red));
+        TestUtils.TestValue(ConsoleColor.Red, read_func: br => br.ReadEnum<ConsoleColor>());
     }
 
     [TestMethod]

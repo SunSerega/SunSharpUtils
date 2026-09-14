@@ -42,7 +42,7 @@ public interface IAllocatableId<TSelf> : IEqualityOperators<TSelf, TSelf, Boolea
 /// Manages allocation of IDs, holding unused ranges for fast reuse
 /// </summary>
 /// <typeparam name="T"></typeparam>
-public readonly struct IdAllocator<T>
+public readonly struct IdAllocator<T>()
     where T : struct, IAllocatableId<T>
 {
     private sealed class IdRange(T min, T max)
@@ -58,7 +58,7 @@ public readonly struct IdAllocator<T>
     /// </summary>
     /// <param name="unsorted_used_ids"></param>
     /// <exception cref="InvalidOperationException"></exception>
-    public IdAllocator(IEnumerable<T> unsorted_used_ids)
+    public IdAllocator(IEnumerable<T> unsorted_used_ids) : this()
     {
         var used_ids = unsorted_used_ids.ToArray();
         if (used_ids.Length == 0)

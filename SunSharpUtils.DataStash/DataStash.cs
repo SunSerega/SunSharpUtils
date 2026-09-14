@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -28,10 +29,11 @@ namespace SunSharpUtils.DataStash;
 //TODO Things left until initial version:
 // - Reading data (including both pending and sealed files) per client request
 // - Filling in data from an older format (to upgrade VRCT to use DataStash)
-// - Check out how consolidation config sim looks in logs
 // - Split this file into multiple?
 
 // ===
+
+//TODO I can force re-run sealing attempt every time open block count reaches 0, to make the process more responsive
 
 //TODO A common pattern to be made convenient:
 // - Some data that is part of typed models is dupped, so it should be stored in the file as a separate block (assigning value to key)
@@ -56,7 +58,7 @@ public sealed class AutoDataStashAttribute : Attribute;
 /// Configuration for how the files in data stash should be merged over time to optimize disk space usage
 /// </summary>
 /// <param name="file_time_target_exp_base">Base of the target exponential growth for merged file sizes. Must be between 1 and 2 for reasonable results</param>
-public readonly struct DataStashConsolidationConfig(Double file_time_target_exp_base = 1.3)
+public readonly struct DataStashConsolidationConfig(Double file_time_target_exp_base)
 {
     /// <summary>
     /// </summary>
@@ -108,6 +110,11 @@ public readonly struct DataStashConsolidationConfig(Double file_time_target_exp_
     // > B' = 4^(B-1)
     // > B = log_4(B') + 1
     // In practice, even at low [N], [t ~= B' ^ N] holds very well
+
+    /// <summary>
+    /// B' = 1.3
+    /// </summary>
+    public static DataStashConsolidationConfig Default { get; } = new(file_time_target_exp_base: 1.3);
 
     private static Double ExpectedMergeTime(Double B, Double t1, Double t2)
     {
@@ -195,13 +202,14 @@ public readonly struct DataStashConsolidationConfig(Double file_time_target_exp_
         report($"Expected average file count in each section: {1/(2*(B-1))}");
         report($"Final sections: {files.Pairwise((t1, t2) => t2-t1).AdjacentGroup().Select(g => $"{g.count}x{g.item}").JoinToString()}");
         report($"===");
-        report($"File counts were seen at these times:");
+        report($"File counts were seen at these times (log-time):");
         var N_max_str_len = (file_count_to_min_time.Count-1).ToString().Length;
         for (var N = 1; N < file_count_to_min_time.Count; ++N)
         {
-            var time_graph_len = 50;
-            var pos_min = (Int32)Math.Round(file_count_to_min_time[N] * (time_graph_len-1) / (Double)step_count);
-            var pos_max = (Int32)Math.Round(file_count_to_max_time[N] * (time_graph_len-1) / (Double)step_count);
+            var time_graph_len = 100;
+
+            var pos_min = TimeToGraphPos(file_count_to_min_time[N]);
+            var pos_max = TimeToGraphPos(file_count_to_max_time[N]);
 
             var time_graph = String.Create(time_graph_len, 0, (span, _) =>
             {
@@ -210,6 +218,9 @@ public readonly struct DataStashConsolidationConfig(Double file_time_target_exp_
             });
 
             report($"- {N.ToString().PadLeft(N_max_str_len)} files | {time_graph} | {file_count_to_min_time[N]} .. {file_count_to_max_time[N]}");
+
+            Int32 TimeToGraphPos(Double time) =>
+                (Int32)Math.Round(Math.Log(time+1, 2) * (time_graph_len-1) / Math.Log(step_count+1, 2));
         }
 
     }
@@ -232,6 +243,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
 {
     private readonly DirectoryInfo root_dir;
     private readonly CancellationToken svc_stop_token;
+    private readonly Boolean log_all_added;
 
     private readonly DirectoryInfo pending_dir;
 
@@ -251,12 +263,14 @@ public abstract class DataStash<TDataStash, TTypedContent>
     /// <param name="data_dir">A directory to store all the data. Must not have any other files</param>
     /// <param name="svc_stop_token"></param>
     /// <param name="on_content_inited"></param>
+    /// <param name="log_all_added"></param>
     /// <param name="consolidation_config"></param>
-    protected DataStash(String data_dir, CancellationToken svc_stop_token, Action<TTypedContent>? on_content_inited = null, DataStashConsolidationConfig? consolidation_config = null)
+    protected DataStash(String data_dir, CancellationToken svc_stop_token, Action<TTypedContent>? on_content_inited = null, Boolean log_all_added = false, DataStashConsolidationConfig? consolidation_config = null)
     {
         Prompt.Notify($"Initializing {this} in: {data_dir}");
         this.root_dir = Directory.CreateDirectory(data_dir);
         this.svc_stop_token = svc_stop_token;
+        this.log_all_added = log_all_added;
 
         this.pending_dir = this.root_dir.CreateSubdirectory("Pending");
 
@@ -295,7 +309,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
         this.pending_sealer = new PendingSealer(this);
         this.pending_sealer.Start(svc_stop_token);
 
-        this.sealed_consolidator = new SealedConsolidator(this, consolidation_config ?? new());
+        this.sealed_consolidator = new SealedConsolidator(this, consolidation_config ?? DataStashConsolidationConfig.Default);
         this.sealed_consolidator.Start(svc_stop_token);
 
         Prompt.Notify($"Initialized {nameof(DataStash<,>)} ({this.GetType().Name})");
@@ -314,7 +328,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
     {
         var content = new TTypedContent();
         foreach (var (common_info, br) in ReadFileBlocks(description, fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumers: null))
-            content.ApplyBlock(common_info, new(common_info.Location, br));
+            content.ApplyBlock(common_info, new(fs.Position, common_info.Location, br));
         return content;
     }
 
@@ -323,7 +337,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
         var file_path = Path.Combine(this.root_dir.FullName, $"{file_id}{file_ext}");
         using var fs = File.OpenRead(file_path);
         foreach (var (common_info, br) in ReadFileBlocks($"{file_id}", fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumers: null))
-            content.ApplyBlock(common_info, new(common_info.Location, br));
+            content.ApplyBlock(common_info, new(fs.Position, common_info.Location, br));
     }
 
     private static IEnumerable<(CommonTypedModelInfo common_info, BinaryReader block_br)> ReadFileBlocks<TLocation>(
@@ -338,8 +352,13 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
         var last_valid_stream_pos = trim_corrupted ? stream.Position : 0;
 
+        //TODO Creating a new MemoryStream for each read op is very inefficient
+        // - What if I create something like a child stream?
+        // - When I do, actually test the performance (in lab setting and in terms of DataStash init times)
+
         Boolean first_read_in_block = false;
         var buffer = new Byte[1024];
+        var finished_reading = false;
         Boolean TryReadRaw(String read_description, Int32 len)
         {
             if (len > buffer.Length)
@@ -349,6 +368,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
             {
                 if (read_len != 0 || !first_read_in_block) // If not EOF at the block boundary
                     Prompt.Notify($"File {description} corrupted in non-critical way: Only found {read_len}/{len} bytes for {read_description}");
+                finished_reading = true;
                 return false;
             }
             first_read_in_block = false;
@@ -369,7 +389,11 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
         using var trimmer = trim_corrupted ? new LambdaDisposable(() =>
         {
-            Prompt.Notify($"File {description} corrupted in non-critical way: Trimming file to {last_valid_stream_pos} bytes");
+            if (!finished_reading)
+                return;
+            if (stream.Length == last_valid_stream_pos)
+                return;
+            Prompt.Notify($"File {description} corrupted in non-critical way: Trimming file bytes {stream.Length} => {last_valid_stream_pos}");
             stream.SetLength(last_valid_stream_pos);
         }) : null;
 
@@ -385,10 +409,10 @@ public abstract class DataStash<TDataStash, TTypedContent>
                     case EBlockKind.Data:
                         break; // Just continue reading
                     case EBlockKind.Close:
-                        if (!TryRead("id of the block being closed", Marshal.SizeOf<BlockId>(), br => br.ReadData<BlockId>(), out var closed_block_id))
+                        if (!TryRead("id of the block being closed", Marshal.SizeOf(BlockId.Invalid.Value), br => br.ReadData<BlockId>(), out var closed_block_id))
                             yield break;
                         on_close.Invoke(location_factory.Invoke(closed_block_id));
-                        break;
+                        continue;
                     default:
                         throw new InvalidDataException($"File {description} corrupted: Invalid block kind: {kind}");
                 }
@@ -416,6 +440,8 @@ public abstract class DataStash<TDataStash, TTypedContent>
             }
             var common_info = new CommonTypedModelInfo { RecordTime = record_time, Location = location };
             yield return (common_info, block_br);
+            if (block_stream.Position != len)
+                throw new InvalidOperationException($"File {description} corrupted: Block {block_id} was not fully read: {block_stream.Position}/{len}");
             if (trim_corrupted)
                 last_valid_stream_pos = stream.Position;
         }
@@ -442,15 +468,15 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
     /// <summary>
     /// </summary>
-    protected T PendingCollectOne<T>(PendingCollectCallback<T> try_get, Func<T>? on_not_found = null)
+    protected T PendingCollectOne<T>(String collect_op_description, PendingCollectCallback<T> try_get, Func<T>? on_not_found = null)
     {
         var results = this.PendingCollect(try_get);
         on_not_found ??= () =>
-            throw new InvalidOperationException($"Value of type {typeof(T)} not found in pending files");
+            throw new InvalidOperationException($"{collect_op_description}: Value of type {typeof(T)} not found in pending files");
         if (results.Length == 0)
             return on_not_found.Invoke();
         if (results.Length > 1)
-            throw new InvalidOperationException($"Value of type {typeof(T)} found in multiple pending files: {results.Select(r => r.file_id).JoinToString("; ")}");
+            throw new InvalidOperationException($"{collect_op_description}: Value of type {typeof(T)} found in multiple pending files: {results.Select(r => r.file_id).JoinToString("; ")}");
         return results[0].item;
     }
 
@@ -831,7 +857,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
                         var (common_info, block_br) = block_enumerators[ind].Current;
                         used_ids.Add(common_info.Location.BlockId);
-                        this.typed_content.ApplyBlock(common_info, new(common_info.Location, block_br));
+                        this.typed_content.ApplyBlock(common_info, new(files[ind].fs.Position, common_info.Location, block_br));
 
                         if (!block_enumerators[ind].MoveNext())
                             inds_with_next.Remove(ind);
@@ -863,6 +889,9 @@ public abstract class DataStash<TDataStash, TTypedContent>
             where TCommand : struct, Enum
             where TData : struct
         {
+            if (this.data_stash.log_all_added)
+                Prompt.Notify($"Adding new block to pending state {this.id}: {nameof(hold_open)}={hold_open}, {nameof(Index)}={Index}, {nameof(command)}={command}={Convert.ToInt64(command)}, {nameof(parent_block_id)}={parent_block_id?.ToString() ?? "<null>"}, {nameof(data)}={data}");
+
             // Everything starting with deciding record_time needs to be locked, to ensure data is added to this.typed_content in the same order as timestamps
             using var lock_scope = this.l_typed_content.EnterScope();
 
@@ -880,10 +909,12 @@ public abstract class DataStash<TDataStash, TTypedContent>
                         throw new InvalidOperationException($"Pending state is corrupted: Block at {location} is already open");
                 }
 
+                while (this.writers.Count <= Index)
+                    this.EnsureWriterInitialized(this.writers.Count);
                 this.writers[Index].Enqueue(bw =>
                 {
-                    var pos1 = bw.BaseStream.Position;
                     bw.WriteEnum(EBlockKind.Data);
+                    var pos1 = bw.BaseStream.Position;
                     bw.Write(-1); // block len placeholder
                     bw.WriteData(record_time);
                     bw.WriteData(new_id);
@@ -896,6 +927,8 @@ public abstract class DataStash<TDataStash, TTypedContent>
                     bw.BaseStream.Position = pos1;
                     bw.Write(checked((Int32)(pos2 - pos1)));
                     bw.BaseStream.Position = pos2;
+                    if (this.data_stash.log_all_added)
+                        Prompt.Notify($"{location}: Written block @ {pos1} .. {pos2} ({pos2-pos1} bytes)");
                     bw.Flush();
                 });
             }
@@ -912,6 +945,8 @@ public abstract class DataStash<TDataStash, TTypedContent>
             this.writers[location.FileIndex].Enqueue(bw =>
             {
                 bw.WriteEnum(EBlockKind.Close);
+                if (this.data_stash.log_all_added)
+                    Prompt.Notify($"{location}: Writing block close @ {bw.BaseStream.Position}");
                 bw.WriteData(location.BlockId);
                 bw.Flush();
             });
@@ -1008,17 +1043,25 @@ public abstract class DataStash<TDataStash, TTypedContent>
                 UsedFor = $"{nameof(DataStash<,>)}.{nameof(PendingFileGroup)}({this.id}) Writer#{index}",
                 OnNewItems = actions =>
                 {
-                    File.Copy(file_path, tmp_file_path, overwrite: false);
-                    using (var fs = File.Open(file_path, FileMode.Append, FileAccess.Write, FileShare.None))
+                    try
                     {
-                        var bw = new BinaryWriter(fs);
-                        if (fs.Position == 0)
-                            bw.WriteData(new FileHeader());
-                        foreach (var action in actions)
-                            action.Invoke(bw);
-                        bw.Flush();
+                        if (File.Exists(file_path))
+                            File.Copy(file_path, tmp_file_path, overwrite: false);
+                        using (var fs = File.Open(tmp_file_path, FileMode.Append, FileAccess.Write, FileShare.None))
+                        {
+                            var bw = new BinaryWriter(fs);
+                            if (fs.Position == 0)
+                                bw.WriteData(new FileHeader());
+                            foreach (var action in actions)
+                                action.Invoke(bw);
+                            bw.Flush();
+                        }
+                        File.Move(tmp_file_path, file_path, overwrite: true);
                     }
-                    File.Move(tmp_file_path, file_path, overwrite: true);
+                    catch (Exception ex)
+                    {
+                        WinSvcCommon.HandleCriticalError(ex, when_doing: $"processing writes to {file_path}");
+                    }
                 },
                 CancelToken = this.write_cts.Token,
             });
@@ -1030,17 +1073,17 @@ public abstract class DataStash<TDataStash, TTypedContent>
     [VersionedData(Version = 1)]
     private readonly struct FileHeader()
     {
-        public const UInt32 ExpectedMagicNumber = 0xDA7A57A5;
+        public static readonly UInt32 ExpectedMagicNumber = BinaryPrimitives.ReverseEndianness(0xDA7A57A5);
         public readonly UInt32 MagicNumber = ExpectedMagicNumber;
     }
 
     /// <summary>
     /// Unique within one <see cref="FileId"/>
     /// </summary>
-    /// <param name="value"></param>
-    internal readonly record struct BlockId(UInt64 value) : IAllocatableId<BlockId>
+    /// <param name="Value"></param>
+    internal readonly record struct BlockId(UInt64 Value) : IAllocatableId<BlockId>
     {
-        public UInt64 Value { get; } = value;
+        public UInt64 Value { get; } = Value;
         public static BlockId Invalid => new(0);
         public static BlockId NullParent => new(1);
         public static BlockId MinValue => new(2);
@@ -1159,14 +1202,20 @@ public abstract class DataStash<TDataStash, TTypedContent>
     /// </summary>
     public sealed class ReadContext
     {
+        private readonly Int64 block_file_end_pos;
         private readonly BlockLocation location;
         private readonly BinaryReader br;
 
-        internal ReadContext(BlockLocation location, BinaryReader br)
+        internal ReadContext(Int64 block_file_end_pos, BlockLocation location, BinaryReader br)
         {
+            this.block_file_end_pos = block_file_end_pos;
             this.location = location;
             this.br = br;
         }
+
+        /// <summary>
+        /// </summary>
+        public String Description => $"{this.location} @ {this.block_file_end_pos - this.br.BaseStream.Length} .. {this.block_file_end_pos} @ {this.br.BaseStream.Position}";
 
         /// <summary>
         /// </summary>
@@ -1202,6 +1251,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
         internal ResaveContext(Stream stream)
         {
             this.bw = new BinaryWriter(stream);
+            this.bw.WriteData(new FileHeader());
         }
 
         /// <summary>
@@ -1342,7 +1392,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                             .ManyLocked(() => this.data_stash.all_sealed_state_files.ToArray());
                         if (file_ids.Length < 2)
                         {
-                            Prompt.Notify($"{this.data_stash}: Not enough files for consolidation");
+                            Prompt.Notify($"{this.data_stash}: Not enough ({file_ids.Length} < 2) sealed files for consolidation");
                             this.wh_recompute.Wait(svc_stop_token);
                             continue;
                         }
@@ -1351,7 +1401,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                             .Select(file_id => (Double)file_id.ToDateTime().Ticks)
                             .Pairwise((t1, t2) => this.consolidation_config.ExpectedMergeTime(t1, t2))
                             .Prepend(Double.PositiveInfinity);
-                        var (next_merge_ind, next_merge_time_double) = Enumerable.Range(0, file_ids.Length - 1)
+                        var (next_merge_ind, next_merge_time_double) = Enumerable.Range(0, file_ids.Length)
                             .Zip(merge_times, (file_id, merge_time) => (file_id, merge_time))
                             .MinBy(t => t.merge_time);
                         if (next_merge_time_double > DateTime.MaxValue.Ticks)

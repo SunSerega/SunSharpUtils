@@ -77,6 +77,7 @@ public static class RpcApiUtils
         {
             while (true)
             {
+                var should_catch = true;
                 try
                 {
                     using var socket = this.ConnectNewSocket();
@@ -95,12 +96,13 @@ public static class RpcApiUtils
                             return;
                         case EServerCommand.Error:
                             var error_message = conn.Reader.ReadString();
+                            should_catch = false;
                             throw new InvalidOperationException($"{this}: Server reported error: {error_message}");
                         default:
                             throw new NotImplementedException($"{this}: Unknown server command: {server_cmd}");
                     }
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (should_catch)
                 {
                     var message = $"{this}: Error communicating Client=>Server";
                     Err.Handle(message);

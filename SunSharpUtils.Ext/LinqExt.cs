@@ -123,6 +123,17 @@ public static class LinqExt
 
     /// <summary>
     /// </summary>
+    public static Dictionary<T, Int32> ToIndex<T>(this IList<T> seq)
+        where T : notnull
+    {
+        var dict = new Dictionary<T, Int32>(seq.Count);
+        for (var i = 0; i < seq.Count; i++)
+            dict.Add(seq[i], i);
+        return dict;
+    }
+
+    /// <summary>
+    /// </summary>
     public static (T[] is_false, T[] is_true) SplitArray<T>(this T[] arr, Predicate<T> condition)
     {
         var if_false = new List<T>(arr.Length);

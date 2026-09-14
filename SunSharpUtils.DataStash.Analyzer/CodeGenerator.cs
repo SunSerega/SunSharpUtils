@@ -477,7 +477,7 @@ internal class CodeGenerator : IIncrementalGenerator
                             if (typed_model_parents[model_type.Name] is { } parent_model_type)
                             {
                                 var parent_can_be_null = parent_model_type.NullableAnnotation.HasFlag(NullableAnnotation.Annotated);
-                                gen += $"var parent = this.PendingCollectOne<{parent_model_type.ToDisplayString()}>((content, [MaybeNullWhen(false)] out result) => content.TryGetParent(network_data, out result){(parent_can_be_null ? ", on_not_found: () => null" : null)});";
+                                gen += $"var parent = this.PendingCollectOne<{parent_model_type.ToDisplayString()}>($\"Looking for parent from network data {{network_data}}\", (content, [MaybeNullWhen(false)] out result) => content.TryGetParent(network_data, out result){(parent_can_be_null ? ", on_not_found: () => null" : null)});";
                                 if (parent_can_be_null)
                                 {
                                     gen += $"if (parent is {{ }})";
@@ -547,7 +547,7 @@ internal class CodeGenerator : IIncrementalGenerator
                         gen += $"public void Close{model_type.Name}({key_type.ToDisplayString()} key)";
                         gen.AddBlock(gen =>
                         {
-                            gen += $"var model = this.PendingCollectOne<{model_type.ToDisplayString()}>((content, [MaybeNullWhen(false)] out result) => content.TryCloseModel(key, out result));";
+                            gen += $"var model = this.PendingCollectOne<{model_type.ToDisplayString()}>($\"Closing model {model_type.Name}[{{key}}]\", (content, [MaybeNullWhen(false)] out result) => content.TryCloseModel(key, out result));";
                             gen += $"model.CommonInfo.Location.CloseBlock();";
                         });
                         gen += $"";
@@ -625,7 +625,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                             gen += $"if (!this.TryGetModel(parent_location, out {parent_model_type.Name}? parent))";
                                             gen.AddTab(gen =>
                                             {
-                                                gen += $"throw new InvalidOperationException($\"Parent {parent_model_type.Name} not found at {{parent_location}} when reading child {model_type.Name} at {{common_info.Location}}\");";
+                                                gen += $"throw new InvalidOperationException($\"{{context.Description}}: Parent {parent_model_type.Name} not found at {{parent_location}} when reading child {model_type.Name} at {{common_info.Location}}\");";
                                             });
                                         }
                                         gen += $"var file_data = context.ReadFileData<{file_data_type.ToDisplayString()}>();";
@@ -642,7 +642,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                 gen += $"default:";
                                 gen.AddTab(gen =>
                                 {
-                                    gen += $"throw new InvalidDataException($\"Invalid block kind: {{command}}\");";
+                                    gen += $"throw new InvalidDataException($\"{{context.Description}}: Invalid block kind: {{command}}\");";
                                 });
                             });
                         });

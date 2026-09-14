@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 
@@ -53,6 +54,11 @@ public sealed class ProcessingQueue<T>() : IEnumerable<T>
             throw new InvalidOperationException($"{nameof(ProcessingQueue<>)} has already been cleared. This might be a race condition");
         this.items.Enqueue(item);
         this.ev.Set();
+        if (Debugger.IsAttached)
+        {
+            while (this.PendingCount != 0)
+                Thread.Sleep(1);
+        }
     }
 
     private IEnumerable<T> DequeueAll()

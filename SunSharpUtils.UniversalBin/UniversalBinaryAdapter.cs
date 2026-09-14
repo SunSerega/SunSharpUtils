@@ -15,15 +15,25 @@ using SunSharpUtils.Threading;
 
 namespace SunSharpUtils.UniversalBin;
 
+//TODO Implement UnmanagedArray
+// - Faster to read everything as just one block of bytes (+length prefix)
+
 //TODO Get up to speed with StructSerializer in "vid list" solution and then split this file, so I have 1 per global type here
 
-//TODO Interface to define custom default marshaling in any given type
+//TODO Maybe use this for the settings?
+// - Might be too specific for the use case (can't think of too specific part of the top of my head)
+// - But maybe if I introduce assembly overrides...
 
 /// <summary>
 /// Marks a type for automatic serialization in <see cref="UniversalBinaryAdapter"/>
 /// </summary>
 [AttributeUsage(AttributeTargets.Struct | AttributeTargets.Class | AttributeTargets.Interface, AllowMultiple = false, Inherited = false)]
-public sealed class AutoSerializedDataAttribute : Attribute;
+public sealed class AutoSerializedDataAttribute(Boolean AllowEmpty = false) : Attribute
+{
+    /// <summary>
+    /// </summary>
+    public Boolean AllowEmpty { get; init; } = AllowEmpty;
+}
 
 /// <summary>
 /// Marks a type to be versioned in <see cref="UniversalBinaryAdapter"/>
@@ -439,6 +449,7 @@ public static class UniversalBinaryAdapter
                 adapter = null;
                 return false;
             }
+            var allow_empty = auto_attrib.AllowEmpty; //TODO Maybe make it a separate attrib, incompatible with [AbstractData]
 
             adapter = new LambdaWithDeps<T>(context =>
             {
@@ -579,7 +590,7 @@ public static class UniversalBinaryAdapter
                     #region Field-wise
                     var bf = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
                     var fields = typeof(T).GetFields(bf);
-                    if (fields.Length == 0 && typeof(T).GetProperties(bf).Length != 0)
+                    if (fields.Length == 0 && typeof(T).GetProperties(bf).Length != 0 && !allow_empty)
                         throw new InvalidOperationException($"[{nameof(AutoSerializedDataAttribute)}] Must define fields, not properties");
 
                     var nullability_context = new NullabilityInfoContext();
