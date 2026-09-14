@@ -513,6 +513,9 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
     #endregion
 
+    internal void TriggerPendingSealer() => this.pending_sealer.Recheck();
+    internal void TriggerSealedConsolidator() => this.sealed_consolidator.RecomputeNextMergeTime();
+
     /// <summary>
     /// </summary>
     public override String ToString() =>
@@ -676,7 +679,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
     {
         /// <summary>
         /// </summary>
-        public Boolean TryGetModel(BlockLocation location, [MaybeNullWhen(false)] out TParentModel model);
+        public Boolean TryGetModelByLocation(BlockLocation location, [MaybeNullWhen(false)] out TParentModel model);
         /// <summary>
         /// </summary>
         public Boolean TryGetParent(TNetworkData data, [MaybeNullWhen(false)] out TParentModel result);
@@ -695,10 +698,10 @@ public abstract class DataStash<TDataStash, TTypedContent>
     {
         /// <summary>
         /// </summary>
-        public abstract Boolean TryGetModel(BlockLocation location, [MaybeNullWhen(false)] out TModel result);
+        public abstract Boolean TryGetModelByLocation(BlockLocation location, [MaybeNullWhen(false)] out TModel result);
         /// <summary>
         /// </summary>
-        public abstract Boolean TryCloseModel(TKey key, [MaybeNullWhen(false)] out TModel result);
+        public abstract Boolean TryGetModelByKey(TKey key, [MaybeNullWhen(false)] out TModel result);
         /// <summary>
         /// </summary>
         public abstract Boolean CollectAllOpenModels(out TModel[] results);
@@ -870,6 +873,9 @@ public abstract class DataStash<TDataStash, TTypedContent>
                         fs.Dispose();
                 }
 
+                for (var ind = 0; ind < this.file_count; ++ind)
+                    this.EnsureWriterInitialized(ind);
+
                 Prompt.Notify($"Loaded pending state {this.id} from {used_ids.Count} blocks");
             }
 
@@ -909,8 +915,6 @@ public abstract class DataStash<TDataStash, TTypedContent>
                         throw new InvalidOperationException($"Pending state is corrupted: Block at {location} is already open");
                 }
 
-                while (this.writers.Count <= Index)
-                    this.EnsureWriterInitialized(this.writers.Count);
                 this.writers[Index].Enqueue(bw =>
                 {
                     bw.WriteEnum(EBlockKind.Data);
@@ -950,6 +954,8 @@ public abstract class DataStash<TDataStash, TTypedContent>
                 bw.WriteData(location.BlockId);
                 bw.Flush();
             });
+            if (this.open_blocks.Count == 0 && FileId.Current != this.id)
+                this.data_stash.TriggerPendingSealer();
         }
 
         public Boolean TrySeal()
@@ -1296,9 +1302,20 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
     }
 
+    private static class TimeFormat
+    {
+
+        public static String DateTime(DateTime dt) => dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+
+        public static String TimeSpan(TimeSpan ts) => $"{Math.Truncate(ts.TotalHours)}:{ts.Minutes:00}:{ts.Seconds:00}";
+
+    }
+
     private sealed class PendingSealer(DataStash<TDataStash, TTypedContent> data_stash)
     {
         private readonly DataStash<TDataStash, TTypedContent> data_stash = data_stash;
+
+        private readonly ManualResetEventSlim wh_recheck = new(true);
 
         public void Start(CancellationToken svc_stop_token)
         {
@@ -1309,14 +1326,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                 {
                     try
                     {
-                        var now = DateTime.UtcNow;
-                        if (next_sealing_attempt > now)
-                        {
-                            var wait_time = next_sealing_attempt - now;
-                            Prompt.Notify($"{this.data_stash}: Waiting {wait_time} until next sealing attempt (at {next_sealing_attempt})");
-                            svc_stop_token.WaitHandle.WaitOne(wait_time);
-                            continue;
-                        }
+                        this.wh_recheck.Reset();
 
                         var current_file_id = FileId.Current;
                         var need_sealing = this.data_stash.all_pending_state_files.Keys.Where(id => id.CompareTo(current_file_id) < 0).ToList();
@@ -1326,7 +1336,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                         {
                             this.data_stash.l_all_pending_state_files.OneLocked(() =>
                             {
-                                Prompt.Notify($"{this.data_stash}: Attempting to seal {need_sealing_count} pending states: {need_sealing.JoinToString()}");
+                                Prompt.Notify($"{this.data_stash} => {nameof(PendingSealer)}: Attempting to seal {need_sealing_count} pending states: {need_sealing.JoinToString()}");
                                 var sealed_count = need_sealing.RemoveAll(file_id =>
                                 {
                                     var pending_file_group = this.data_stash.all_pending_state_files[file_id];
@@ -1338,17 +1348,27 @@ public abstract class DataStash<TDataStash, TTypedContent>
                                         Err.Handle($"{this.data_stash}: Failed to remove pending state file {file_id}");
 
                                     // New sealed file has been added, need to reset consolidation schedule
-                                    this.data_stash.sealed_consolidator.RecomputeNextMergeTime();
+                                    this.data_stash.TriggerSealedConsolidator();
 
                                     return true;
                                 });
-                                Prompt.Notify($"{this.data_stash}: Sealed {sealed_count}/{need_sealing_count} pending states");
+                                Prompt.Notify($"{this.data_stash} => {nameof(PendingSealer)}: Sealed {sealed_count}/{need_sealing_count} pending states");
                             }, with_priority: false);
                         }
 
+                        var now = DateTime.UtcNow;
                         next_sealing_attempt = new DateTime(DateOnly.FromDateTime(now), new TimeOnly(now.Hour, minute: 5), DateTimeKind.Utc).AddHours(1);
                         if (need_sealing.Count != 0)
                             next_sealing_attempt = next_sealing_attempt.ClampTop(now.AddMinutes(5));
+                        if (next_sealing_attempt > now)
+                        {
+                            var wait_time = next_sealing_attempt - now;
+                            Prompt.Notify($"{this.data_stash} => {nameof(PendingSealer)}: Waiting {TimeFormat.TimeSpan(wait_time)} until next sealing attempt (at {TimeFormat.DateTime(next_sealing_attempt)})");
+                            if (this.wh_recheck.Wait(wait_time, svc_stop_token))
+                                Prompt.Notify($"{this.data_stash} => {nameof(PendingSealer)}: Wait was interrupted, rechecking pending states");
+                            continue;
+                        }
+
                     }
                     catch (Exception ex) when (svc_stop_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
                     {
@@ -1366,6 +1386,8 @@ public abstract class DataStash<TDataStash, TTypedContent>
             };
             thr.Start();
         }
+
+        public void Recheck() => this.wh_recheck.Set();
 
     }
 
@@ -1392,7 +1414,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                             .ManyLocked(() => this.data_stash.all_sealed_state_files.ToArray());
                         if (file_ids.Length < 2)
                         {
-                            Prompt.Notify($"{this.data_stash}: Not enough ({file_ids.Length} < 2) sealed files for consolidation");
+                            Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Not enough ({file_ids.Length} < 2) sealed files for consolidation");
                             this.wh_recompute.Wait(svc_stop_token);
                             continue;
                         }
@@ -1406,7 +1428,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                             .MinBy(t => t.merge_time);
                         if (next_merge_time_double > DateTime.MaxValue.Ticks)
                         {
-                            Prompt.Notify($"{this.data_stash}: Closest merge time is beyond DateTime.MaxValue: {next_merge_time_double}");
+                            Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Closest merge time is beyond DateTime.MaxValue: {next_merge_time_double}");
                             this.wh_recompute.Wait(svc_stop_token);
                             continue;
                         }
@@ -1419,12 +1441,13 @@ public abstract class DataStash<TDataStash, TTypedContent>
                         if (next_merge_dt > now)
                         {
                             var wait_time = next_merge_dt - now;
-                            Prompt.Notify($"{this.data_stash}: Next consolidation is planned to merge {id_merge} => {id_keep} at {next_merge_dt} (in {wait_time})");
-                            this.wh_recompute.Wait(wait_time, svc_stop_token);
+                            Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Next consolidation is planned to merge {id_merge} => {id_keep} at {TimeFormat.DateTime(next_merge_dt)} (in {TimeFormat.TimeSpan(wait_time)})");
+                            if (this.wh_recompute.Wait(wait_time, svc_stop_token))
+                                Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Wait was interrupted, recomputing merge schedule");
                             continue;
                         }
 
-                        Prompt.Notify($"{this.data_stash}: Consolidating {id_merge} => {id_keep}");
+                        Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Consolidating {id_merge} => {id_keep}");
                         this.data_stash.l_all_sealed_state_files.OneLocked(() =>
                         {
                             var content = new TTypedContent();
@@ -1439,7 +1462,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                             using (var fs = File.Open(merge_file_path, FileMode.CreateNew))
                                 content.Resave(fs);
 
-                            Prompt.Notify($"{this.data_stash}: Validating after consolidating {id_merge} => {id_keep}");
+                            Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Validating after consolidating {id_merge} => {id_keep}");
                             try
                             {
                                 using var fs = File.OpenRead(merge_file_path);
@@ -1451,12 +1474,13 @@ public abstract class DataStash<TDataStash, TTypedContent>
                                 WinSvcCommon.HandleCriticalError(ex, when_doing: $"validating after consolidating {id_merge} => {id_keep}");
                             }
 
-                            Prompt.Notify($"{this.data_stash}: Cleanup after merging {id_merge} => {id_keep}");
+                            Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Cleanup after merging {id_merge} => {id_keep}");
                             var final_file_path = Path.Combine(this.data_stash.root_dir.FullName, $"{id_keep}{file_ext}");
                             File.Move(merge_file_path, final_file_path, overwrite: true);
+                            File.Delete(Path.Combine(this.data_stash.root_dir.FullName, $"{id_merge}{file_ext}"));
                             merge_dir.Delete(recursive: false);
                         }, with_priority: false);
-                        Prompt.Notify($"{this.data_stash}: Done consolidating {id_merge} => {id_keep}");
+                        Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Done consolidating {id_merge} => {id_keep}");
                     }
                     catch (Exception ex) when (svc_stop_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
                     {

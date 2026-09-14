@@ -104,9 +104,7 @@ public static class RpcApiUtils
                 }
                 catch (Exception ex) when (should_catch)
                 {
-                    var message = $"{this}: Error communicating Client=>Server";
-                    Err.Handle(message);
-                    Err.Handle(ex);
+                    Err.Handle($"{this}: Error communicating Client=>Server\n{ex}");
                     Thread.Sleep(TimeSpan.FromSeconds(1));
                 }
             }

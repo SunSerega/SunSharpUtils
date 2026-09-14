@@ -547,8 +547,15 @@ internal class CodeGenerator : IIncrementalGenerator
                         gen += $"public void Close{model_type.Name}({key_type.ToDisplayString()} key)";
                         gen.AddBlock(gen =>
                         {
-                            gen += $"var model = this.PendingCollectOne<{model_type.ToDisplayString()}>($\"Closing model {model_type.Name}[{{key}}]\", (content, [MaybeNullWhen(false)] out result) => content.TryCloseModel(key, out result));";
+                            gen += $"var model = this.PendingCollectOne<{model_type.ToDisplayString()}>($\"Searching model {model_type.Name}[{{key}}] for closing\", (content, [MaybeNullWhen(false)] out result) => content.TryGetModelByKey(key, out result));";
+                            gen += $"if (!model.IsOpen)";
+                            gen.AddBlock(gen =>
+                            {
+                                gen += $"Prompt.Notify($\"{{this}}: Model {{model}} is already closed\");";
+                                gen += $"return;";
+                            });
                             gen += $"model.CommonInfo.Location.CloseBlock();";
+                            gen += $"model.IsOpen = false;";
                         });
                         gen += $"";
                     }
@@ -584,9 +591,11 @@ internal class CodeGenerator : IIncrementalGenerator
                                 gen += $"file_id.TryUsePendingContent(this, content =>";
                                 gen.AddBlock(gen =>
                                 {
-                                    gen += $"if (content.TryCloseModel(key, out var model))";
-                                    gen.AddTab(gen =>
+                                    gen += $"if (content.TryGetModelByKey(key, out {model_type.ToDisplayString()}? model) && model.IsOpen)";
+                                    gen.AddBlock(gen =>
                                     {
+                                        gen += $"model.CommonInfo.Location.CloseBlock();";
+                                        gen += $"model.IsOpen = false;";
                                         gen += $"Prompt.Notify($\"{{this}}: Force closed {{model}}, because producer does not recognize it\");";
                                     });
                                 }, "{", "});");
@@ -622,7 +631,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                         if (typed_model_parents[model_type.Name] is { } parent_model_type)
                                         {
                                             gen += $"var parent_location = context.ReadParentLocation();";
-                                            gen += $"if (!this.TryGetModel(parent_location, out {parent_model_type.Name}? parent))";
+                                            gen += $"if (!this.TryGetModelByLocation(parent_location, out {parent_model_type.Name}? parent))";
                                             gen.AddTab(gen =>
                                             {
                                                 gen += $"throw new InvalidOperationException($\"{{context.Description}}: Parent {parent_model_type.Name} not found at {{parent_location}} when reading child {model_type.Name} at {{common_info.Location}}\");";
@@ -653,7 +662,7 @@ internal class CodeGenerator : IIncrementalGenerator
                         {
                             foreach (var model_name in closable_typed_models.Keys)
                             {
-                                gen += $"if (this.TryGetModel(location, out {model_name}? model_{model_name}))";
+                                gen += $"if (this.TryGetModelByLocation(location, out {model_name}? model_{model_name}))";
                                 gen.AddBlock(gen =>
                                 {
                                     gen += $"model_{model_name}.IsOpen = false;";
@@ -675,7 +684,7 @@ internal class CodeGenerator : IIncrementalGenerator
                             {
                                 foreach (var model_name in closable_typed_models.Keys)
                                 {
-                                    gen += $"if (this.TryGetModel(location, out {model_name}? model_{model_name}))";
+                                    gen += $"if (this.TryGetModelByLocation(location, out {model_name}? model_{model_name}))";
                                     gen.AddTab(gen =>
                                     {
                                         gen += $"return model_{model_name};";

@@ -9,6 +9,7 @@ using SunSharpUtils.UniversalBin;
 
 namespace Tests;
 
+//TODO Actually run tests with this stash, just like with RPC tests
 [AutoDataStash]
 internal sealed partial class ExampleDataStash(String states_dir, CancellationToken svc_stop_token) : DataStash<ExampleDataStash, ExampleDataStash.TypedContent>(states_dir, svc_stop_token)
 {
@@ -92,26 +93,18 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             return this.all_a.TryGetValue(data.ParentId, out result);
         }
 
-        public Boolean TryGetModel(BlockLocation location, [MaybeNullWhen(false)] out A result) =>
+        public Boolean TryGetModelByLocation(BlockLocation location, [MaybeNullWhen(false)] out A result) =>
             this.location_to_a.TryGetValue(location, out result);
 
-        public Boolean TryCloseModel(String key, [MaybeNullWhen(false)] out A result)
-        {
-            if (!this.all_a.TryGetValue(key, out result))
-                return false;
-            if (!result.IsOpen)
-                return false;
-            result.IsOpen = false;
-            return true;
-        }
+        public static String GetModelKey(A model) => model.Id;
+        public Boolean TryGetModelByKey(String key, [MaybeNullWhen(false)] out A result) =>
+            this.all_a.TryGetValue(key, out result);
 
         public Boolean CollectAllOpenModels(out A[] results)
         {
             results = this.all_a.Values.Where(a => a.IsOpen).ToArray();
             return results.Length != 0;
         }
-
-        public static String GetModelKey(A model) => model.Id;
 
         public static FileData.A ParseNetworkPacket(ExampleDataStash stash, NetworkData.AddA data) => data.Content;
         public static FileData.B ParseNetworkPacket(ExampleDataStash stash, NetworkData.AddB data) => data.Content;
