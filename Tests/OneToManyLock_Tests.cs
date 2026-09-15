@@ -9,11 +9,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace SunSharpUtils.Threading.Tests;
 
-[TestClass()]
+[TestClass]
 public class OneToManyLock_Tests
 {
 
-    [TestMethod()]
+    //TODO Put into a separate, non-testing project, so that all tests can be run without a GUI
+    [TestMethod]
     public void VisualStressTest()
     {
         var l = new OneToManyLock();

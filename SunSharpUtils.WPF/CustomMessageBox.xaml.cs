@@ -152,7 +152,7 @@ public partial class CustomMessageBox : Window
     }
     /// <summary>
     /// </summary>
-    public static TRes? Show<TRes>(String title, String? content, params TRes[] options) where TRes : struct, Enum => Show<TRes>(title, content, no_own, options);
+    public static TRes? Show<TRes>(String title, String? content, params TRes[] options) where TRes : struct, Enum => Show(title, content, no_own, options);
 
     /// <summary>
     /// </summary>

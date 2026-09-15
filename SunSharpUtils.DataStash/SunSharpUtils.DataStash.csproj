@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+	
+	<PropertyGroup>
+        <!--<IncludeBuildOutput>true</IncludeBuildOutput>-->
+	</PropertyGroup>
+	
+    <ItemGroup>
+        <ProjectReference Include="..\SunSharpUtils.Threading\SunSharpUtils.Threading.csproj" />
+        <ProjectReference Include="..\SunSharpUtils.UniversalBin\SunSharpUtils.UniversalBin.csproj" />
+        <ProjectReference Include="..\SunSharpUtils.WinSvc\SunSharpUtils.WinSvc.csproj" />
+    </ItemGroup>
+    
+    <ItemGroup>
+	    <ProjectReference Include="..\SunSharpUtils.DataStash.Analyzer\SunSharpUtils.DataStash.Analyzer.csproj" ReferenceOutputAssembly="true" OutputItemType="Analyzer" PrivateAssets="all" />
+	</ItemGroup>
+    
+    <ItemGroup>
+        <None Include="$(OutputPath)\SunSharpUtils.DataStash.Analyzer.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+        <None Include="$(OutputPath)\SunSharpUtils.Ext.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    </ItemGroup>
+    
+</Project>

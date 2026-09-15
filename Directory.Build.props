@@ -5,16 +5,17 @@
 	
 	<PropertyGroup>
 		<TargetFramework>net10.0-windows10.0.17763.0</TargetFramework>
+		<LangVersion>latest</LangVersion>
+		<!--<LangVersion>preview</LangVersion>-->
+		<SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
+		
 		<Nullable>enable</Nullable>
-		<NoWarn>1701;1702;CA1416</NoWarn>
-		<!--<LangVersion>latest</LangVersion>-->
-		<LangVersion>preview</LangVersion>
+		
+		<!--<NoWarn>$(NoWarn);1701;1702;CA1416</NoWarn>-->
+		
+		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+		<CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)obj\Generated</CompilerGeneratedFilesOutputPath>
 	</PropertyGroup>
-	
-	<!--<Target Name="RestoreNuget" BeforeTargets="PreBuildEvent">
-		<Exec Command="dotnet restore &quot;$(ProjectPath)&quot;" />
-		<Message Text="Restored nuget with dotnet" Importance="high"/>
-	</Target>-->
 	
 	<Import Project="Local.Directory.Build.props" Condition="Exists('Local.Directory.Build.props')" />
 	

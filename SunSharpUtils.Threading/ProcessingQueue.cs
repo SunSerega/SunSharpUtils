@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 
@@ -18,6 +19,9 @@ public sealed class ProcessingQueue<T>() : IEnumerable<T>
 {
     private readonly ConcurrentQueue<T> items = [];
     private readonly ManualResetEventSlim ev = new(initialState: false);
+    private Boolean processing_started = false;
+    private Boolean need_clear = false;
+    private readonly ManualResetEventSlim processing_stopped = new(initialState: false);
 
     /// <summary>
     /// </summary>
@@ -29,18 +33,46 @@ public sealed class ProcessingQueue<T>() : IEnumerable<T>
 
     /// <summary>
     /// </summary>
-    public void Enqueue(T item)
+    public Int32 PendingCount => this.items.Count;
+
+    /// <summary>
+    /// </summary>
+    public void WaitUntilProcessingFullyStopped(Boolean should_clear)
     {
-        this.items.Enqueue(item);
-        this.ev.Set();
+        if (should_clear)
+            this.need_clear = true;
+        this.processing_stopped.Wait();
     }
 
     /// <summary>
     /// </summary>
-    public IEnumerable<T> DequeueAll()
+    public void Enqueue(T item)
     {
-        while (this.items.TryDequeue(out var item))
+        if (this.processing_stopped.IsSet)
+            throw new InvalidOperationException($"{nameof(ProcessingQueue<>)} already stopped processing. This is a race condition");
+        if (this.need_clear)
+            throw new InvalidOperationException($"{nameof(ProcessingQueue<>)} has already been cleared. This might be a race condition");
+        this.items.Enqueue(item);
+        this.ev.Set();
+        if (Debugger.IsAttached)
+        {
+            while (this.PendingCount != 0)
+                Thread.Sleep(1);
+        }
+    }
+
+    private IEnumerable<T> DequeueAll()
+    {
+        while (true)
+        {
+            if (this.need_clear)
+                this.items.Clear();
+            if (!this.items.TryPeek(out var item))
+                yield break;
             yield return item;
+            if (!this.items.TryDequeue(out var item_deq) || !EqualityComparer<T>.Default.Equals(item, item_deq))
+                throw new InvalidOperationException($"Race condition: Multiple threads consuming the queue of {this}");
+        }
     }
 
     /// <summary>
@@ -66,6 +98,10 @@ public sealed class ProcessingQueue<T>() : IEnumerable<T>
     /// <param name="config"></param>
     public Thread StartProcessingThread(ProcessingThreadConfig config)
     {
+        if (this.processing_started)
+            throw new InvalidOperationException($"{nameof(ProcessingQueue<>)} already started processing");
+        this.processing_started = true;
+
         var on_new_items = config.OnNewItems;
         var cancel_token = config.CancelToken;
         var do_wait = config.DoWait;
@@ -82,7 +118,7 @@ public sealed class ProcessingQueue<T>() : IEnumerable<T>
 
         void ProcessingLoop()
         {
-            while (!cancel_token.IsCancellationRequested)
+            while (!cancel_token.IsCancellationRequested || !this.items.IsEmpty)
             {
                 try
                 {
@@ -97,17 +133,23 @@ public sealed class ProcessingQueue<T>() : IEnumerable<T>
                 }
                 catch (Exception ex) when (cancel_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
                 {
-                    break;
+                    continue; // Try process remaining items
                 }
                 catch (Exception ex)
                 {
                     Err.Handle(ex);
                 }
             }
+            this.processing_stopped.Set();
         }
     }
 
     IEnumerator<T> IEnumerable<T>.GetEnumerator() => this.items.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => this.items.GetEnumerator();
+
+    /// <summary>
+    /// </summary>
+    public override String ToString() =>
+        $"{nameof(ProcessingQueue<>)}<{typeof(T)}>";
 
 }
