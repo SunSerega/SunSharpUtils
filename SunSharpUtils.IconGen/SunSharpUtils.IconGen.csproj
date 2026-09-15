@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+    
+	<PropertyGroup>
+		<UseWPF>true</UseWPF>
+	</PropertyGroup>
+	
+	<ItemGroup>
+		<PackageReference Include="Wacton.Unicolour" Version="6.4.0" />
+	</ItemGroup>
+	
+	<ItemGroup>
+	    <ProjectReference Include="..\SunSharpUtils.Ext\SunSharpUtils.Ext.csproj" />
+	</ItemGroup>
+    
+</Project>

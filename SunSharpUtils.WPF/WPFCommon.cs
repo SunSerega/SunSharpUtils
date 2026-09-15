@@ -15,6 +15,15 @@ public static class WPFCommon
     /// </summary>
     public static Application? CurrentApp { get; private set; }
 
+#pragma warning disable CS1591 // Missing XML comment for publicly visible type or member
+    public readonly record struct InitConfig()
+    {
+        public required Application App { get; init; }
+        //public required Window Window { get; init; }
+        public Err.DelegateStore? ErrInit { get; init; } = null;
+        public Prompt.DelegateStore? PromptInit { get; init; } = null;
+    }
+#pragma warning restore CS1591 // Missing XML comment for publicly visible type or member
     /// <summary>
     /// Initializes common WPF stuff
     /// 0. Sets some internal SunSharpUtils values, like WPFCommon.CurrentApp
@@ -22,19 +31,19 @@ public static class WPFCommon
     /// 2. Adds handlers to Prompt to show CustomMessageBox-es
     /// 3. Adds AppDomain.CurrentDomain.UnhandledException handler
     /// </summary>
-    public static void Init(Application app, Err.DelegateStore? err_init = null, Prompt.DelegateStore? prompt_init = null)
+    public static void Init(InitConfig config)
     {
 
         if (CurrentApp != null)
             throw new InvalidOperationException($"Already initialized");
-        CurrentApp = app;
+        CurrentApp = config.App;
 
-        Err.Init(err_init ?? new()
+        Err.Init(config.ErrInit ?? new()
         {
             Handle = e => CustomMessageBox.ShowOK(title: "ERROR", content: e.ToString())
         });
 
-        Prompt.Init(prompt_init ?? new()
+        Prompt.Init(config.PromptInit ?? new()
         {
             Notify = CustomMessageBox.ShowOK,
             AskYesNo = CustomMessageBox.ShowYesNo,
@@ -49,7 +58,7 @@ public static class WPFCommon
 
         Common.OnShutdown += exit_code =>
             CurrentApp?.Dispatcher.Invoke(() => CurrentApp.Shutdown(exit_code));
-        app.SessionEnding += (o, e) =>
+        config.App.SessionEnding += (o, e) =>
         {
             if (Common.IsShuttingDown) return;
             if (e.ReasonSessionEnding != ReasonSessionEnding.Shutdown)

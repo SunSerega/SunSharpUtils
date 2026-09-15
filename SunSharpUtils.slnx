@@ -20,6 +20,7 @@
         <Project Path="SunSharpUtils.UniversalBin/SunSharpUtils.UniversalBin.csproj" Id="b1c3e615-af88-428f-9127-45fcacfec015" />
     </Folder>
     <Folder Name="/4 Visual/">
+        <Project Path="SunSharpUtils.IconGen/SunSharpUtils.IconGen.csproj" Id="35e083a0-1ef9-4bc2-a9c0-ee6ed2581d5d" />
         <Project Path="SunSharpUtils.WPF/SunSharpUtils.WPF.csproj" />
     </Folder>
     <Folder Name="/5 Background/">
