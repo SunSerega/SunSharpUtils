@@ -33,8 +33,6 @@ namespace SunSharpUtils.DataStash;
 
 // ===
 
-//TODO I can force re-run sealing attempt every time open block count reaches 0, to make the process more responsive
-
 //TODO A common pattern to be made convenient:
 // - Some data that is part of typed models is dupped, so it should be stored in the file as a separate block (assigning value to key)
 // - Multiple values for the same key can be in the same file, when value is updated. Solved when reading by looking at timings
@@ -47,6 +45,8 @@ namespace SunSharpUtils.DataStash;
 // - I need to somehow hold the memory of all block kinds from prev generations, so that values don't shift
 // - In the first place, I need to decide what to do with blocks that don't exist anymore
 // - I think I want to first find the use case
+// - After implementing [AbstractData], I think I just need something similar with attributes referencing old version of the TypedContent
+// - And then I should also add a custom file header part
 
 /// <summary>
 /// Marks data stash for auto-generation of implementation boilerplate
@@ -967,7 +967,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                 var open_blocks = this.open_blocks.ToArray();
                 if (open_blocks.Length != 0)
                 {
-                    this.typed_content.LogSealHeldByBlocks($"pending file group {this.id}", open_blocks);
+                    //this.typed_content.LogSealHeldByBlocks($"pending file group {this.id}", open_blocks);
                     return false;
                 }
                 this.sealing_started = true;
@@ -1336,7 +1336,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                         {
                             this.data_stash.l_all_pending_state_files.OneLocked(() =>
                             {
-                                Prompt.Notify($"{this.data_stash} => {nameof(PendingSealer)}: Attempting to seal {need_sealing_count} pending states: {need_sealing.JoinToString()}");
+                                //Prompt.Notify($"{this.data_stash} => {nameof(PendingSealer)}: Attempting to seal {need_sealing_count} pending states: {need_sealing.JoinToString()}");
                                 var sealed_count = need_sealing.RemoveAll(file_id =>
                                 {
                                     var pending_file_group = this.data_stash.all_pending_state_files[file_id];
@@ -1352,7 +1352,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
                                     return true;
                                 });
-                                Prompt.Notify($"{this.data_stash} => {nameof(PendingSealer)}: Sealed {sealed_count}/{need_sealing_count} pending states");
+                                //Prompt.Notify($"{this.data_stash} => {nameof(PendingSealer)}: Sealed {sealed_count}/{need_sealing_count} pending states");
                             }, with_priority: false);
                         }
 
@@ -1363,7 +1363,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                         if (next_sealing_attempt > now)
                         {
                             var wait_time = next_sealing_attempt - now;
-                            Prompt.Notify($"{this.data_stash} => {nameof(PendingSealer)}: Waiting {TimeFormat.TimeSpan(wait_time)} until next sealing attempt (at {TimeFormat.DateTime(next_sealing_attempt)})");
+                            //Prompt.Notify($"{this.data_stash} => {nameof(PendingSealer)}: Waiting {TimeFormat.TimeSpan(wait_time)} until next sealing attempt (at {TimeFormat.DateTime(next_sealing_attempt)})");
                             if (this.wh_recheck.Wait(wait_time, svc_stop_token))
                                 Prompt.Notify($"{this.data_stash} => {nameof(PendingSealer)}: Wait was interrupted, rechecking pending states");
                             continue;
@@ -1478,6 +1478,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                             var final_file_path = Path.Combine(this.data_stash.root_dir.FullName, $"{id_keep}{file_ext}");
                             File.Move(merge_file_path, final_file_path, overwrite: true);
                             File.Delete(Path.Combine(this.data_stash.root_dir.FullName, $"{id_merge}{file_ext}"));
+                            this.data_stash.all_sealed_state_files.RemoveAt(next_merge_ind);
                             merge_dir.Delete(recursive: false);
                         }, with_priority: false);
                         Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Done consolidating {id_merge} => {id_keep}");
