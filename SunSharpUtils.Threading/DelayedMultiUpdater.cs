@@ -19,6 +19,23 @@ public sealed class DelayedMultiUpdater<TKey>
 
     private static String ClassName => $"{nameof(DelayedMultiUpdater<>)}<{typeof(TKey)}>";
 
+    /// <summary>
+    /// </summary>
+    public readonly struct Config
+    {
+        /// <summary>
+        /// An action to run when delay expires
+        /// </summary>
+        public required Action<TKey> Update { get; init; }
+        /// <summary>
+        /// Used for thread name
+        /// </summary>
+        public required String Description { get; init; }
+        /// <summary>
+        /// If false, the app can't be shut down in the middle of executing update
+        /// </summary>
+        public required Boolean IsBackground { get; init; }
+    }
     private static ThreadStart MakeThreadStart(
         Boolean is_background,
         Action<TKey> update,
@@ -65,15 +82,12 @@ public sealed class DelayedMultiUpdater<TKey>
     };
     /// <summary>
     /// </summary>
-    /// <param name="update">An action to run when delay expires</param>
-    /// <param name="description">Used for thread name</param>
-    /// <param name="is_background">If false, the app can't be shut down in the middle of executing update</param>
-    public DelayedMultiUpdater(Action<TKey> update, String description, Boolean is_background)
+    public DelayedMultiUpdater(Config config)
     {
-        var thr = new Thread(MakeThreadStart(is_background, update, this.ev, this.updatables))
+        var thr = new Thread(MakeThreadStart(config.IsBackground, config.Update, this.ev, this.updatables))
         {
             IsBackground = true,
-            Name = $"{ClassName}: {description}",
+            Name = $"{ClassName}: {config.Description}",
         };
         thr.SetApartmentState(ApartmentState.STA);
         thr.Start();

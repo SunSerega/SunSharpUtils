@@ -50,6 +50,23 @@ public sealed class DelayedUpdater
     private readonly ManualResetEventSlim ev = new(false);
     private readonly ActivationHolder activation = new();
 
+    /// <summary>
+    /// </summary>
+    public readonly struct Config
+    {
+        /// <summary>
+        /// An action to run when delay expires
+        /// </summary>
+        public required Action Update { get; init; }
+        /// <summary>
+        /// Used for thread name
+        /// </summary>
+        public required String Description { get; init; }
+        /// <summary>
+        /// If false, the app can't be shut down in the middle of executing update
+        /// </summary>
+        public required Boolean IsBackground { get; init; }
+    }
     private static ThreadStart MakeThreadStart(
         Boolean is_background,
         Action update,
@@ -94,15 +111,12 @@ public sealed class DelayedUpdater
 
     /// <summary>
     /// </summary>
-    /// <param name="update">An action to run when delay expires</param>
-    /// <param name="description">Used for thread name</param>
-    /// <param name="is_background">If false, the app can't be shut down in the middle of executing update</param>
-    public DelayedUpdater(Action update, String description, Boolean is_background)
+    public DelayedUpdater(Config config)
     {
-        var thr = new Thread(MakeThreadStart(is_background, update, this.ev, this.activation))
+        var thr = new Thread(MakeThreadStart(config.IsBackground, config.Update, this.ev, this.activation))
         {
             IsBackground=true,
-            Name = $"{nameof(DelayedUpdater)}: {description}",
+            Name = $"{nameof(DelayedUpdater)}: {config.Description}",
         };
         thr.SetApartmentState(ApartmentState.STA);
         thr.Start();

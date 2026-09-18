@@ -27,7 +27,6 @@ using SunSharpUtils.WinSvc;
 namespace SunSharpUtils.DataStash;
 
 //TODO Things left until initial version:
-// - Reading data (including both pending and sealed files) per client request
 // - Filling in data from an older format (to upgrade VRCT to use DataStash)
 // - Split this file into multiple?
 
@@ -256,6 +255,9 @@ public abstract class DataStash<TDataStash, TTypedContent>
     private readonly List<FileId> all_sealed_state_files;
     private readonly ConcurrentDictionary<FileId, PendingFileGroup> all_pending_state_files = [];
 
+    private readonly ConcurrentDictionary<FileId, TTypedContent> cached_sealed_file_content = [];
+    private readonly DelayedMultiUpdater<FileId> cached_sealed_file_content_unloader;
+
     private readonly PendingSealer pending_sealer;
     private readonly SealedConsolidator sealed_consolidator;
 
@@ -306,6 +308,13 @@ public abstract class DataStash<TDataStash, TTypedContent>
             on_content_inited?.Invoke(pending_file_group.Content);
             this.all_pending_state_files[pending_file_group.Id] = pending_file_group;
         }
+
+        this.cached_sealed_file_content_unloader = new(new()
+        {
+            Update = file_id => this.cached_sealed_file_content.TryRemove(file_id, out _),
+            Description = $"{typeof(TDataStash)} cached content unloader",
+            IsBackground = true,
+        });
 
         this.pending_sealer = new PendingSealer(this);
         this.pending_sealer.Start(svc_stop_token);
@@ -515,6 +524,28 @@ public abstract class DataStash<TDataStash, TTypedContent>
         }
         return results.ToArray();
     });
+
+    /// <summary>
+    /// </summary>
+    protected TTypedContent GetContentAt(DateTime record_time_utc)
+    {
+        var expected_file_id = FileId.FromDateTimeUtc(record_time_utc);
+        return this.l_all_pending_and_sealed_state_files.ManyLocked(() =>
+        {
+            if (this.all_pending_state_files.TryGetValue(expected_file_id, out var pending_file_group))
+                return pending_file_group.Content;
+
+            var existing_file_id = this.all_sealed_state_files.Last(existing_file_id => existing_file_id.CompareTo(expected_file_id) <= 0);
+            var content = this.cached_sealed_file_content.GetOrAdd(existing_file_id, file_id =>
+            {
+                Prompt.Notify($"Requested content from sealed file {file_id} was not in the cache, reading again");
+                return this.ReadSealedFileContent(file_id);
+            });
+            this.cached_sealed_file_content_unloader.TriggerPostpone(existing_file_id, TimeSpan.FromHours(1));
+
+            return content;
+        });
+    }
 
     #endregion
 
@@ -758,16 +789,14 @@ public abstract class DataStash<TDataStash, TTypedContent>
         }
         public Int32 CompareTo(FileId other) => Compare(this, other);
 
-        public static FileId Current
+        public static FileId FromDateTimeUtc(DateTime dt_utc)
         {
-            get
-            {
-                var now = DateTime.UtcNow;
-                var date = DateOnly.FromDateTime(now);
-                var hour = now.Hour;
-                return new() { Date = date, Hour = hour };
-            }
+            var date = DateOnly.FromDateTime(dt_utc);
+            var hour = dt_utc.Hour;
+            return new() { Date = date, Hour = hour };
         }
+
+        public static FileId Current => FromDateTimeUtc(DateTime.UtcNow);
 
         public DateTime ToDateTime() => this.Date.ToDateTime(new TimeOnly(this.Hour, 0));
 

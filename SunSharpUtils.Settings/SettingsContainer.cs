@@ -77,11 +77,12 @@ public abstract class SettingsContainer<TSelf, TData> : SettingsContainerBase
     /// </summary>
     public static String ClassName => $"{typeof(TSelf)} = {nameof(SettingsContainer<,>)}<{typeof(TData)}>";
 
-    private static readonly DelayedMultiUpdater<TSelf> delayed_resave = new(
-        container => container.FullResave(),
-        $"{nameof(FullResave)} for {ClassName}",
-        is_background: false
-    );
+    private static readonly DelayedMultiUpdater<TSelf> delayed_resave = new(new()
+    {
+        Update = container => container.FullResave(),
+        Description = $"{nameof(FullResave)} for {ClassName}",
+        IsBackground = false
+    });
 
     #region Init
 
