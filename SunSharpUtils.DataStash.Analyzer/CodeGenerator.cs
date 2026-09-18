@@ -533,7 +533,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                                 gen *= ": null";
                                             gen *= ", ";
                                         }
-                                        gen *= "file_data)";
+                                        gen *= "file_data, is_new: true)";
                                     });
                                 });
                                 gen += $");";
@@ -582,7 +582,7 @@ internal class CodeGenerator : IIncrementalGenerator
                             gen.AddBlock(gen =>
                             {
                                 gen += $"var (file_id, model) = locally_open[key];";
-                                gen += $"if (model.CommonInfo.RecordTime > max_force_close_record_time)";
+                                gen += $"if (model.CommonInfo.RecordTimeUtc > max_force_close_record_time)";
                                 gen.AddTab(gen =>
                                 {
                                     gen += $"continue;";
@@ -643,7 +643,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                             gen *= "this.ReadBlock(common_info, ";
                                             if (typed_model_parents[model_type.Name] is { })
                                                 gen *= "parent, ";
-                                            gen *= "file_data);";
+                                            gen *= "file_data, is_new: false);";
                                         });
                                         gen += $"break;";
                                     });
@@ -695,7 +695,7 @@ internal class CodeGenerator : IIncrementalGenerator
                         });
                         gen += $"";
 
-                        gen += $"public void Resave(ResaveContext context) => this.Resave(new TypedResaveContext(context));";
+                        gen += $"public void Resave(ResaveContext context) => this.Resave(new TypedResaveContext(context, DateTime.MinValue));";
                         gen += $"";
 
                         foreach (var kv in file_blocks)
@@ -737,10 +737,11 @@ internal class CodeGenerator : IIncrementalGenerator
 
                     foreach (var container_model_name in all_parent_model_names.Prepend(null))
                     {
-                        gen += $"public sealed class {ResaveContextClassName(container_model_name)}(ResaveContext context)";
+                        gen += $"public sealed class {ResaveContextClassName(container_model_name)}(ResaveContext context, DateTime last_record_time_utc)";
                         gen.AddBlock(gen =>
                         {
                             gen += $"private readonly ResaveContext context = context;";
+                            gen += $"public DateTime last_record_time_utc = last_record_time_utc;";
                             gen += $"";
 
                             foreach (var (model_name, parent_model_type) in typed_model_parents)
@@ -772,6 +773,12 @@ internal class CodeGenerator : IIncrementalGenerator
                                 });
                                 gen.AddBlock(gen =>
                                 {
+                                    gen += $"if (model.CommonInfo.RecordTimeUtc < this.last_record_time_utc)";
+                                    gen.AddTab(gen =>
+                                    {
+                                        gen += $"throw new InvalidOperationException($\"{data_stash_type.Name}.{ResaveContextClassName(container_model_name)}: Cannot write {model_name} block with record time {{model.CommonInfo.RecordTimeUtc}} before last written record time {{this.last_record_time_utc}}\");";
+                                    });
+                                    gen += $"this.last_record_time_utc = model.CommonInfo.RecordTimeUtc;";
                                     gen.AddLine(gen =>
                                     {
                                         gen *= "this.context.WriteBlock(model.CommonInfo, EBlockKind.";
@@ -784,7 +791,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                         gen *= "model.ConvertToFileData());";
                                     });
                                     if (all_parent_model_names.Contains(model_name))
-                                        gen += $"resave_children.Invoke(new {ResaveContextClassName(model_name)}(this.context));";
+                                        gen += $"resave_children.Invoke(new {ResaveContextClassName(model_name)}(this.context, this.last_record_time_utc));";
                                 });
                                 gen += $"";
 

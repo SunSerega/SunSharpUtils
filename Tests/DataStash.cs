@@ -14,6 +14,8 @@ namespace Tests;
 internal sealed partial class ExampleDataStash(String states_dir, CancellationToken svc_stop_token) : DataStash<ExampleDataStash, ExampleDataStash.TypedContent>(states_dir, svc_stop_token)
 {
 
+    protected override TypedContent CreateEmptyTypedContent() => new();
+
     public static class NetworkData
     {
 
@@ -122,7 +124,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             this.ordered_children.Add(c);
         }
 
-        public A ReadBlock(CommonTypedModelInfo common_info, FileData.A content)
+        public A ReadBlock(CommonTypedModelInfo common_info, FileData.A content, Boolean is_new)
         {
             var res = new A
             {
@@ -134,7 +136,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             return res;
         }
 
-        public B ReadBlock(CommonTypedModelInfo common_info, A parent, FileData.B content)
+        public B ReadBlock(CommonTypedModelInfo common_info, A parent, FileData.B content, Boolean is_new)
         {
             var res = new B
             {
@@ -147,7 +149,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             return res;
         }
 
-        public C ReadBlock(CommonTypedModelInfo common_info, A? parent, FileData.C content)
+        public C ReadBlock(CommonTypedModelInfo common_info, A? parent, FileData.C content, Boolean is_new)
         {
             var res = new C
             {

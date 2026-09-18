@@ -833,6 +833,8 @@ public static class UniversalBinaryAdapter
             }
             Boolean ContainsForbiddenTypeUncached(Type type)
             {
+                if (type == typeof(DateTime))
+                    return true;
                 if (Nullable.GetUnderlyingType(type) is { })
                     return true;
                 foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
