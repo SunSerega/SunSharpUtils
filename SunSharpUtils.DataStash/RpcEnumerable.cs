@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Net.Sockets;
 using System.Threading;
@@ -24,15 +23,20 @@ public sealed class RpcEnumerable<T> : IDisposable
     where T : notnull
 {
     private readonly Socket socket;
+    private readonly CancellationToken cancel_token;
+    private readonly NetworkStream stream;
     private readonly BinaryReader br;
     private Int32 existing_values_left;
     private Boolean is_finished = false;
 
     /// <param name="socket"></param>
-    public RpcEnumerable(Socket socket)
+    /// <param name="read_cancel_token"></param>
+    public RpcEnumerable(Socket socket, CancellationToken read_cancel_token)
     {
         this.socket = socket;
-        this.br = new(new NetworkStream(socket));
+        this.cancel_token = read_cancel_token;
+        this.stream = new NetworkStream(socket);
+        this.br = new(this.stream);
         this.existing_values_left = this.br.ReadInt32();
     }
 
@@ -42,35 +46,47 @@ public sealed class RpcEnumerable<T> : IDisposable
     public Int32 ExistingValuesLeft => this.existing_values_left;
 
     /// <summary>
-    /// Tries to get the next value from the stream
-    /// <para/>
-    /// Fails if the stream is finished or if only_existing=true and all existing values have already been read
+    /// Reads items from the RPC stream
     /// </summary>
-    /// <param name="item"></param>
     /// <param name="only_existing">Only consider values that already existed when establishing connection</param>
     /// <returns></returns>
-    public Boolean TryGetNext([MaybeNullWhen(false)] out T? item, Boolean only_existing = false)
+    /// <exception cref="InvalidOperationException"></exception>
+    /// <exception cref="EndOfStreamException"></exception>
+    /// <exception cref="InvalidDataException"></exception>
+    public async IAsyncEnumerable<T> ReadItemsAsync(Boolean only_existing = false)
     {
+
         if (this.existing_values_left < 0)
             throw new InvalidOperationException($"The number of existing values left is negative: {this.existing_values_left}");
-        if (this.is_finished || only_existing && this.existing_values_left == 0)
+        while (!this.is_finished && this.existing_values_left > 0)
         {
-            item = default;
-            return false;
+            yield return this.br.ReadData<T>();
+            this.existing_values_left -= 1;
         }
-        if (this.existing_values_left > 0)
-            this.existing_values_left--;
-        else
+
+        if (only_existing)
+            yield break;
+
+        var mem = new Memory<Byte>(new Byte[1]);
+        while (!this.is_finished)
         {
-            if (!this.br.ReadBoolean())
+            var read_bytes = await this.stream.ReadAsync(mem, this.cancel_token).ConfigureAwait(false);
+            this.cancel_token.ThrowIfCancellationRequested();
+            if (read_bytes == 0)
+                throw new EndOfStreamException();
+            switch (mem.Span[0])
             {
-                this.is_finished = true;
-                item = default;
-                return false;
+                case 0:
+                    this.is_finished = true;
+                    yield break;
+                case 1:
+                    yield return this.br.ReadData<T>();
+                    break;
+                default:
+                    throw new InvalidDataException($"Unexpected value received from stream: {mem.Span[0]}");
             }
         }
-        item = this.br.ReadData<T>();
-        return true;
+
     }
 
     /// <summary>

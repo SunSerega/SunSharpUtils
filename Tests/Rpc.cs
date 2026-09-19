@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -87,13 +88,13 @@ public class Rpc
             await TestMethod(
                 send: () =>
                 {
-                    var wh = new System.Threading.ManualResetEventSlim();
-                    ExampleRpcApi.MethodStreamed1(len, (stream) =>
+                    var wh = new ManualResetEventSlim();
+                    ExampleRpcApi.MethodStreamed1(len, async (stream) =>
                     {
-                        while (stream.TryGetNext(out var item))
+                        await foreach (var item in stream.ReadItemsAsync())
                             received.Add(item);
                         wh.Set();
-                    });
+                    }, read_cancel_token: default);
                     Assert.IsTrue(wh.Wait(TimeSpan.FromSeconds(5)), $"MethodStreamed1 callback was not invoked");
                     Assert.IsTrue(received.SequenceEqual(Enumerable.Range(0, len)), "MethodStreamed1 received sequence does not match expected");
                 },
@@ -135,14 +136,14 @@ public class Rpc
             await TestMethod(
                 send: () =>
                 {
-                    var wh = new System.Threading.ManualResetEventSlim();
-                    ExampleRpcApi.MethodStreamed2((x, stream) =>
+                    var wh = new ManualResetEventSlim();
+                    ExampleRpcApi.MethodStreamed2(async (x, stream) =>
                     {
                         received_x = x;
-                        while (stream.TryGetNext(out var item))
+                        await foreach (var item in stream.ReadItemsAsync())
                             received.Add(item);
                         wh.Set();
-                    });
+                    }, read_cancel_token: default);
                     Assert.IsTrue(wh.Wait(TimeSpan.FromSeconds(5)), $"MethodStreamed2 callback was not invoked");
                     Assert.AreEqual(len, received_x);
                     Assert.IsTrue(received.SequenceEqual(Enumerable.Range(0, len)), "MethodStreamed2 received sequence does not match expected");
@@ -204,9 +205,9 @@ internal static partial class ExampleRpcApi
     public static partial Int32 Method2();
 
     [RpcApi]
-    public static partial void MethodStreamed1(Int32 input, Action<RpcEnumerable<Int32>> on_connected);
+    public static partial void MethodStreamed1(Int32 input, Func<RpcEnumerable<Int32>, Task> on_connected, CancellationToken read_cancel_token);
 
     [RpcApi]
-    public static partial void MethodStreamed2(Action<Int32, RpcEnumerable<Int32>> on_connected);
+    public static partial void MethodStreamed2(Func<Int32, RpcEnumerable<Int32>, Task> on_connected, CancellationToken read_cancel_token);
 
 }

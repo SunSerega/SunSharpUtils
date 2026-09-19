@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -68,19 +70,19 @@ internal class CodeGenerator : IIncrementalGenerator
 
                 var methods = g.Select(m =>
                 {
-                    if (m.Parameters.Length != 0 && m.Parameters[^1] is { } last_param && last_param.Type.TypeKind is TypeKind.Delegate)
+                    if (m.Parameters.Length >= 2 && m.Parameters is [.., var stream_callback_param, var read_cancel_token_param] && stream_callback_param.Type.TypeKind is TypeKind.Delegate)
                     {
-                        var del_type = (INamedTypeSymbol)last_param.Type;
+                        var del_type = (INamedTypeSymbol)stream_callback_param.Type;
                         var del_invoke_method = del_type.DelegateInvokeMethod ?? throw new InvalidOperationException($"Delegate type {del_type.ToDisplayString()} has no invoke method");
-                        if (!del_invoke_method.ReturnsVoid)
+                        if (!del_invoke_method.ReturnsVoid && del_invoke_method.ReturnType.ToDisplayString() != typeof(Task).FullName)
                         {
                             m.ReportOnAllDeclaringSyntax(
                                 context,
                                 id: "DS_RPC003",
                                 title: "Invalid delegate return type for RPC method",
-                                messageFormat: "RPC method '{0}' has a delegate parameter '{1}' with non-void return type '{2}'",
+                                messageFormat: "RPC method '{0}' with streamed parameter '{1}' must return either void or Task, not '{2}'",
                                 DiagnosticSeverity.Error,
-                                args: [m.Name, last_param.Name, del_invoke_method.ReturnType.ToDisplayString()]
+                                args: [m.Name, stream_callback_param.Name, del_invoke_method.ReturnType.ToDisplayString()]
                             );
                         }
                         var del_params = del_invoke_method.Parameters;
@@ -101,9 +103,21 @@ internal class CodeGenerator : IIncrementalGenerator
                                 context,
                                 id: "DS_RPC004",
                                 title: "Invalid delegate parameter for RPC method",
-                                messageFormat: "RPC method '{0}' with streamed parameter '{1}' must have a last parameter of type RpcEnumerable<T>",
+                                messageFormat: "RPC method '{0}' with streamed parameter '{1}' must have a second to last parameter of type RpcEnumerable<T>",
                                 DiagnosticSeverity.Error,
-                                args: [m.Name, last_param.Name]
+                                args: [m.Name, stream_callback_param.Name]
+                            );
+                        }
+
+                        if (read_cancel_token_param.Type.ToDisplayString() != typeof(CancellationToken).FullName)
+                        {
+                            m.ReportOnAllDeclaringSyntax(
+                                context,
+                                id: "DS_RPC005",
+                                title: "Invalid read cancel token parameter for RPC method",
+                                messageFormat: "RPC method '{0}' with streamed parameter '{1}' must have a last parameter of type CancellationToken",
+                                DiagnosticSeverity.Error,
+                                args: [m.Name, stream_callback_param.Name]
                             );
                         }
 
@@ -111,11 +125,11 @@ internal class CodeGenerator : IIncrementalGenerator
                         {
                             m.ReportOnAllDeclaringSyntax(
                                 context,
-                                id: "DS_RPC005",
+                                id: "DS_RPC006",
                                 title: "Invalid return type for RPC method",
-                                messageFormat: "RPC method '{0}' with streamed parameter '{1}' must have a void return type",
+                                messageFormat: "RPC method '{0}' with streamed parameter '{1}' must return void, not '{2}'",
                                 DiagnosticSeverity.Error,
-                                args: [m.Name, last_param.Name]
+                                args: [m.Name, stream_callback_param.Name, m.ReturnType.ToDisplayString()]
                             );
                         }
 
@@ -123,22 +137,24 @@ internal class CodeGenerator : IIncrementalGenerator
                         {
                             Name = m.Name,
                             Accessibility = m.DeclaredAccessibility.ConvertToGenStr(),
-                            NonStreamedParameters = m.Parameters[..^1].ToArray(p => new RpcApi.Method.NameAndType
+                            NonStreamedParameters = m.Parameters[..^2].ToArray(p => new RpcApi.Method.NameAndType
                             {
                                 Name = p.Name,
                                 Type = p.Type.ToDisplayString()
                             }),
                             StreamCallbackParameter = new()
                             {
-                                Name = last_param.Name,
-                                Type = last_param.Type.ToDisplayString()
+                                Name = stream_callback_param.Name,
+                                Type = stream_callback_param.Type.ToDisplayString()
                             },
+                            ReadCancelTokenParameterName = read_cancel_token_param.Name,
                             ReturnedValues = del_params[..^1].ToArray(p => new RpcApi.Method.NameAndType
                             {
                                 Name = p.Name,
                                 Type = p.Type.ToDisplayString()
                             }),
                             StreamedItemType = stream_type_name,
+                            CallbackReturnsTask = !del_invoke_method.ReturnsVoid,
                         };
                     }
 
@@ -419,7 +435,10 @@ internal class CodeGenerator : IIncrementalGenerator
                                         gen *= " ";
                                         gen *= streamed_method.Name;
                                         gen *= "(";
-                                        gen.AddSeq(streamed_method.NonStreamedParameters.Append(streamed_method.StreamCallbackParameter), (gen, param) =>
+                                        var all_params = streamed_method.NonStreamedParameters
+                                            .Append(streamed_method.StreamCallbackParameter)
+                                            .Append(new() { Name=streamed_method.ReadCancelTokenParameterName, Type="System.Threading.CancellationToken" });
+                                        gen.AddSeq(all_params, (gen, param) =>
                                         {
                                             gen *= param.Type;
                                             gen *= " ";
@@ -450,7 +469,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                             gen += $"IsBackground = false,";
                                         }, "{", "};");
                                         gen += $"thr.Start();";
-                                        gen += $"void ThreadProc() => ClientConnector.Connect(conn =>";
+                                        gen += $"void ThreadProc() => Err.HandleDuring(() => ClientConnector.Connect(conn =>";
                                         gen.AddBlock(gen =>
                                         {
                                             gen += $"conn.Writer.WriteEnum(EClientCommand.{streamed_method.Name});";
@@ -459,7 +478,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                             gen += $"conn.Writer.Flush();";
                                             foreach (var param in streamed_method.ReturnedValues)
                                                 gen += $"var {param.Name} = conn.Reader.ReadData<{param.Type}>();";
-                                            gen += $"var enumerable = new {nameof(RpcEnumerable<>)}<{streamed_method.StreamedItemType}>(conn.Socket);";
+                                            gen += $"var enumerable = new {nameof(RpcEnumerable<>)}<{streamed_method.StreamedItemType}>(conn.Socket, {streamed_method.ReadCancelTokenParameterName});";
                                             gen.AddLine(gen =>
                                             {
                                                 gen *= streamed_method.StreamCallbackParameter.Name;
@@ -469,9 +488,12 @@ internal class CodeGenerator : IIncrementalGenerator
                                                     gen *= param.Name;
                                                     gen *= ", ";
                                                 }
-                                                gen *= "enumerable);";
+                                                gen *= "enumerable)";
+                                                if (streamed_method.CallbackReturnsTask)
+                                                    gen *= ".GetAwaiter().GetResult()";
+                                                gen *= ";";
                                             });
-                                        }, "{", "});");
+                                        }, "{", $"}}, {streamed_method.ReadCancelTokenParameterName}));");
                                     });
                                     break;
                                 }
@@ -1096,8 +1118,10 @@ internal class CodeGenerator : IIncrementalGenerator
         {
             public required NameAndType[] NonStreamedParameters { get; init; }
             public required NameAndType StreamCallbackParameter { get; init; }
+            public required String ReadCancelTokenParameterName { get; init; }
             public required NameAndType[] ReturnedValues { get; init; }
             public required String StreamedItemType { get; init; }
+            public required Boolean CallbackReturnsTask { get; init; }
         }
 
     }

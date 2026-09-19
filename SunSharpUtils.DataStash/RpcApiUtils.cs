@@ -1,9 +1,11 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 
 using SunSharpUtils.Ext.Bin;
+using SunSharpUtils.Ext.Exceptions;
 
 namespace SunSharpUtils.DataStash;
 
@@ -76,9 +78,9 @@ public static class RpcApiUtils
         }
         /// <summary>
         /// </summary>
-        public void Connect(Action<Connection> act)
+        public void Connect(Action<Connection> act, CancellationToken cancel_token = default)
         {
-            while (true)
+            while (!cancel_token.IsCancellationRequested)
             {
                 var should_catch = true;
                 try
@@ -105,6 +107,10 @@ public static class RpcApiUtils
                         default:
                             throw new NotImplementedException($"{this}: Unknown server command: {server_cmd}");
                     }
+                }
+                catch (Exception ex) when (cancel_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
+                {
+                    break;
                 }
                 catch (Exception ex) when (should_catch)
                 {
