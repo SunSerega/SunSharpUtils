@@ -20,13 +20,21 @@ namespace SunSharpUtils.DataStash;
 /// Represents a stream of values continuously received through RPC
 /// </summary>
 /// <typeparam name="T"></typeparam>
-/// <param name="br"></param>
-public sealed class RpcEnumerable<T>(BinaryReader br)
+public sealed class RpcEnumerable<T> : IDisposable
     where T : notnull
 {
-    private readonly BinaryReader br = br;
-    private Int32 existing_values_left = br.ReadInt32();
+    private readonly Socket socket;
+    private readonly BinaryReader br;
+    private Int32 existing_values_left;
     private Boolean is_finished = false;
+
+    /// <param name="socket"></param>
+    public RpcEnumerable(Socket socket)
+    {
+        this.socket = socket;
+        this.br = new(new NetworkStream(socket));
+        this.existing_values_left = this.br.ReadInt32();
+    }
 
     /// <summary>
     /// Number of unread values that already existed when establishing connection
@@ -63,6 +71,15 @@ public sealed class RpcEnumerable<T>(BinaryReader br)
         }
         item = this.br.ReadData<T>();
         return true;
+    }
+
+    /// <summary>
+    /// Closes the connection and prevents further reading of values
+    /// </summary>
+    public void Dispose()
+    {
+        this.is_finished = true;
+        this.socket.Close();
     }
 
 }
@@ -107,15 +124,17 @@ public sealed class RpcEnumerableSource<T>()
     {
         this.subscribers.RemoveWhere(subscriber =>
         {
+            if (!subscriber.IsConnected)
+                return true;
             try
             {
-                if (!subscriber.IsConnected)
-                    return true;
                 act.Invoke(subscriber);
                 return false;
             }
             catch (Exception ex)
             {
+                if (!subscriber.IsConnected)
+                    return true;
                 Err.Handle(ex);
                 subscriber.Dispose();
                 return true;

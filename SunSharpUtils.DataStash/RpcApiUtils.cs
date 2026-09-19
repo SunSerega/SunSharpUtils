@@ -66,6 +66,9 @@ public static class RpcApiUtils
         {
             /// <summary>
             /// </summary>
+            public required Socket Socket { get; init; }
+            /// <summary>
+            /// </summary>
             public required BinaryWriter Writer { get; init; }
             /// <summary>
             /// </summary>
@@ -84,6 +87,7 @@ public static class RpcApiUtils
                     var stream = new NetworkStream(socket);
                     var conn = new Connection()
                     {
+                        Socket = socket,
                         Writer = new BinaryWriter(stream),
                         Reader = new BinaryReader(stream),
                     };

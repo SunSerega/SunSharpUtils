@@ -459,7 +459,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                             gen += $"conn.Writer.Flush();";
                                             foreach (var param in streamed_method.ReturnedValues)
                                                 gen += $"var {param.Name} = conn.Reader.ReadData<{param.Type}>();";
-                                            gen += $"var enumerable = new {nameof(RpcEnumerable<>)}<{streamed_method.StreamedItemType}>(conn.Reader);";
+                                            gen += $"var enumerable = new {nameof(RpcEnumerable<>)}<{streamed_method.StreamedItemType}>(conn.Socket);";
                                             gen.AddLine(gen =>
                                             {
                                                 gen *= streamed_method.StreamCallbackParameter.Name;
