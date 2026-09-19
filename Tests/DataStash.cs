@@ -186,7 +186,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             public void ResaveTo(TypedResaveContext_A context);
         }
 
-        public sealed partial class A : ITypedModel<FileData.A>, IGlobalContentModel
+        public sealed partial class A : ITypedModel<FileData.A>, ITypedCloseableModel, IGlobalContentModel
         {
             public required String Id { get; init; }
             public required UInt32 X { get; init; }
@@ -204,6 +204,8 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
                 this.AllC.Add(c.Id, c);
                 this.OrderedChildren.Add(c);
             }
+
+            public void CloseContents() { }
 
             public FileData.A ConvertToFileData() => new()
             {

@@ -581,6 +581,15 @@ public abstract class DataStash<TDataStash, TTypedContent>
     }
 
     /// <summary>
+    /// </summary>
+    public interface ITypedCloseableModel
+    {
+        /// <summary>
+        /// </summary>
+        public void CloseContents();
+    }
+
+    /// <summary>
     /// Implement by typed file content type to convert all of its content back into file blocks
     /// </summary>
     /// <typeparam name="TSelf"></typeparam>
@@ -731,7 +740,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
     /// <typeparam name="TModel"></typeparam>
     public interface ITypedContentWithCloseableBlock<TKey, TModel>
         where TKey : IEquatable<TKey>
-        where TModel : class
+        where TModel : class, ITypedCloseableModel
     {
         /// <summary>
         /// </summary>

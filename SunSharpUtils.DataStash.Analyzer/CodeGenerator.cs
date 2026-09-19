@@ -812,6 +812,7 @@ internal class CodeGenerator : IIncrementalGenerator
                             });
                             gen += $"model.CommonInfo.Location.CloseBlock();";
                             gen += $"model.IsOpen = false;";
+                            gen += $"model.CloseContents();";
                         });
                         gen += $"";
                     }
