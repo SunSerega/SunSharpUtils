@@ -25,32 +25,6 @@ public static class LinqExt
         return count;
     }
 
-    /// <summary>
-    /// </summary>
-    public static Boolean SequenceEqual<T>(this IEnumerable<T> seq1, IEnumerable<T> seq2, IEqualityComparer<T>? comparer = null)
-    {
-        comparer ??= EqualityComparer<T>.Default;
-        if (seq1 is IReadOnlyCollection<T> c1 && seq2 is IReadOnlyCollection<T> c2)
-        {
-            if (c1.Count != c2.Count)
-                return false;
-        }
-        using var en1 = seq1.GetEnumerator();
-        using var en2 = seq2.GetEnumerator();
-        while (true)
-        {
-            var mv1 = en1.MoveNext();
-            var mv2 = en2.MoveNext();
-            if (mv1 != mv2)
-                return false;
-            if (!mv1)
-                break;
-            if (!comparer.Equals(en1.Current, en2.Current))
-                return false;
-        }
-        return true;
-    }
-
     ///// <summary>
     ///// </summary>
     //public static IEnumerable<T> RangeIncl<T>(T from, T to) where T : System.Numerics.IBinaryInteger<T>

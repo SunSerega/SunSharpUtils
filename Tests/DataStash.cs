@@ -10,9 +10,14 @@ using SunSharpUtils.UniversalBin;
 namespace Tests;
 
 //TODO Actually run tests with this stash, just like with RPC tests
+// - How do I test upgrade paths?
+// - I can manually write a resave method, and have CodeGen create a "-Core" version of resave, that I can call when I want to resave normally
+
 [AutoDataStash]
 internal sealed partial class ExampleDataStash(String states_dir, CancellationToken svc_stop_token) : DataStash<ExampleDataStash, ExampleDataStash.TypedContent>(states_dir, svc_stop_token)
 {
+    //protected override Int32 PreVersioningTypedContentVersion => 1;
+    //protected override Int32 CurrentTypedContentVersion => 1;
 
     protected override TypedContent CreateEmptyTypedContent() => new();
 
@@ -70,13 +75,38 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
 
     }
 
+    #region Old versions
+#pragma warning disable CS0649
+
+    public static class FileData_v1
+    {
+
+        [AutoSerializedData]
+        [VersionedData(Version = 1)]
+        public struct B
+        {
+            public required String Id;
+            public required UInt64 X;
+        }
+
+    }
+
+#pragma warning restore CS0649
+    #endregion
+
     //TODO There is a bunch of generatable boilerplate still here
     // - But for these methods, I'm not sure if I might want a custom implementation at some point
     // - Need to first implement this for Kate and VRCT, to see an example of less test-y usage
+    [TypedContent(Version = 2)]
+    [TypedContentOldVersion(Version = 1, ExpectedModelTypes = [
+        typeof(A), typeof(B), typeof(C),
+    ], ExpectedModelVersions = [1, 1, 1])]
     public sealed partial class TypedContent : ITypedContent<TypedContent, TypedResaveContext>
         , ITypedContentWithRootBlock<NetworkData.AddA, FileData.A, TypedContent.A>, ITypedContentWithCloseableBlock<String, TypedContent.A>
         , ITypedContentWithChildBlock<NetworkData.AddB, FileData.B, TypedContent.A, TypedContent.B>
         , ITypedContentWithChildBlock<NetworkData.AddC, FileData.C, TypedContent.A?, TypedContent.C>
+
+        , ITypedContentWithBlockUpgradePath<TypedContent.B, FileData_v1.B, TypedContent.A>
     {
         private readonly Dictionary<BlockLocation, A> location_to_a = [];
         private readonly Dictionary<String, A> all_a = [];
@@ -165,6 +195,9 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             return res;
         }
 
+        public void ReadBlockOldVersion(CommonTypedModelInfo common_info, A parent, FileData_v1.B content) =>
+            this.ReadBlock(common_info, parent, new FileData.B() { Id = content.Id, X = content.X }, is_new: false);
+
         public void Resave(TypedResaveContext context)
         {
             foreach (var child in this.ordered_children)
@@ -186,6 +219,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             public void ResaveTo(TypedResaveContext_A context);
         }
 
+        [TypedModel(Version = 1)]
         public sealed partial class A : ITypedModel<FileData.A>, ITypedCloseableModel, IGlobalContentModel
         {
             public required String Id { get; init; }
@@ -229,6 +263,8 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
 
             public override String ToString() => $"{nameof(A)}[{this.Id}]";
         }
+        [TypedModel(Version = 2)]
+        [TypedModelOldVersion(Version = 1, OldFileDataType = typeof(FileData_v1.B), OldParentModel = typeof(A))]
         public sealed partial class B : ITypedModel<FileData.B>, IAContentModel
         {
             public required String Id { get; init; }
@@ -250,6 +286,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
 
             public override String ToString() => $"{nameof(B)}[{this.Id}]";
         }
+        [TypedModel(Version = 1)]
         public sealed partial class C : ITypedModel<FileData.C>, IGlobalContentModel, IAContentModel
         {
             public required String Id { get; init; }

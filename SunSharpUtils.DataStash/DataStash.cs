@@ -43,17 +43,15 @@ namespace SunSharpUtils.DataStash;
 //TODO Backup files during each consolidation merge
 // - Keep last N merges saved, delete older ones
 
-//TODO How do I version the generated EBlockKind???
-// - I need to somehow hold the memory of all block kinds from prev generations, so that values don't shift
-// - In the first place, I need to decide what to do with blocks that don't exist anymore
-// - I think I want to first find the use case
-// - After implementing [AbstractData], I think I just need something similar with attributes referencing old version of the TypedContent
-// - And then I should also add a custom file header part
+//TODO A lot of interfaces here only exist to be required by code-generation (to make user code more strongly-typed)
+// - This pattern only makes sense to the one who thought through the code-generation, and will be confusing to basic users
+// - Where can this pattern be explained?
+// - What about agents? I feel like they'd be able to somehow use it throught trial and error, but it would be hard to make sure they have the right intuition
 
 /// <summary>
 /// Marks data stash for auto-generation of implementation boilerplate
 /// </summary>
-[AttributeUsage(AttributeTargets.Class)]
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
 public sealed class AutoDataStashAttribute : Attribute;
 
 /// <summary>
@@ -329,6 +327,13 @@ public abstract class DataStash<TDataStash, TTypedContent>
     /// </summary>
     protected abstract TTypedContent CreateEmptyTypedContent();
 
+    /// <summary>
+    /// </summary>
+    protected abstract Int32 PreVersioningTypedContentVersion { get; }
+    /// <summary>
+    /// </summary>
+    protected abstract Int32 CurrentTypedContentVersion { get; }
+
     #region ReadFile
 
     private TTypedContent ReadSealedFileContent(FileId file_id)
@@ -341,8 +346,8 @@ public abstract class DataStash<TDataStash, TTypedContent>
     private TTypedContent ReadSealedFileContent(String description, FileId file_id, FileStream fs)
     {
         var content = this.CreateEmptyTypedContent();
-        foreach (var (common_info, br) in ReadFileBlocks(description, fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumers: null))
-            content.ApplyBlock(common_info, new(fs.Position, common_info.Location, br));
+        foreach (var (version, common_info, br) in this.ReadFileBlocks(description, fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), pending_file_read_info: null))
+            content.ApplyBlock(version, common_info, new(fs.Position, common_info.Location, br));
         return content;
     }
 
@@ -350,12 +355,12 @@ public abstract class DataStash<TDataStash, TTypedContent>
     {
         var file_path = Path.Combine(this.root_dir.FullName, $"{file_id}{file_ext}");
         using var fs = File.OpenRead(file_path);
-        foreach (var (common_info, br) in ReadFileBlocks($"{file_id}", fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), block_open_status_consumers: null))
-            content.ApplyBlock(common_info, new(fs.Position, common_info.Location, br));
+        foreach (var (version, common_info, br) in this.ReadFileBlocks($"{file_id}", fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), pending_file_read_info: null))
+            content.ApplyBlock(version, common_info, new(fs.Position, common_info.Location, br));
     }
 
-    private static IEnumerable<(CommonTypedModelInfo common_info, BinaryReader block_br)> ReadFileBlocks<TLocation>(
-        String description, Stream stream, Boolean trim_corrupted, Func<BlockId, TLocation> location_factory, (Action<TLocation> on_open, Action<TLocation> on_close)? block_open_status_consumers)
+    private IEnumerable<(VersionInfo version, CommonTypedModelInfo common_info, BinaryReader block_br)> ReadFileBlocks<TLocation>(
+        String description, Stream stream, Boolean trim_corrupted, Func<BlockId, TLocation> location_factory, (Action<TLocation> on_open, Action<TLocation> on_close)? pending_file_read_info)
         where TLocation : BlockLocation
     {
         var br = new BinaryReader(stream);
@@ -363,6 +368,15 @@ public abstract class DataStash<TDataStash, TTypedContent>
         var header = br.ReadData<FileHeader>();
         if (header.MagicNumber != FileHeader.ExpectedMagicNumber)
             throw new InvalidDataException($"File {description} corrupted: Invalid magic number in header: {header.MagicNumber:X8} != {FileHeader.ExpectedMagicNumber:X8}");
+        var file_version = header.Version;
+
+        // File version 2 instroduced content and model versioning support
+        var typed_content_version = file_version < 2 ? this.PreVersioningTypedContentVersion : br.ReadInt32();
+        var version = new VersionInfo()
+        {
+            FileVersion = file_version,
+            TypedContentVersion = typed_content_version
+        };
 
         var last_valid_stream_pos = trim_corrupted ? stream.Position : 0;
 
@@ -414,8 +428,18 @@ public abstract class DataStash<TDataStash, TTypedContent>
         while (true)
         {
             first_read_in_block = true;
-            if (block_open_status_consumers is { on_close: var on_close })
+            var block_version = version;
+            if (pending_file_read_info is { on_close: var on_close })
             {
+                if (!TryRead("per-block file version", sizeof(Int32), br => br.ReadInt32(), out var block_file_version))
+                    yield break;
+                if (!TryRead("per-block content version", sizeof(Int32), br => br.ReadInt32(), out var block_content_version))
+                    yield break;
+                block_version = new VersionInfo()
+                {
+                    FileVersion = block_file_version,
+                    TypedContentVersion = block_content_version,
+                };
                 if (!TryRead("kind of the next block", sizeof(EBlockKind), br => br.ReadEnum<EBlockKind>(), out var kind))
                     yield break;
                 switch (kind)
@@ -446,14 +470,14 @@ public abstract class DataStash<TDataStash, TTypedContent>
             var record_time_utc = block_br.ReadData<DateTime>().ToUniversalTime();
             var block_id = block_br.ReadData<BlockId>();
             var location = location_factory.Invoke(block_id);
-            if (block_open_status_consumers is { on_open: var on_open })
+            if (pending_file_read_info is { on_open: var on_open })
             {
                 var hold_open = block_br.ReadBoolean();
                 if (hold_open)
                     on_open.Invoke(location);
             }
             var common_info = new CommonTypedModelInfo { RecordTimeUtc = record_time_utc, Location = location };
-            yield return (common_info, block_br);
+            yield return (block_version, common_info, block_br);
             if (block_stream.Position != len)
                 throw new InvalidOperationException($"File {description} corrupted: Block {block_id} was not fully read: {block_stream.Position}/{len}");
             if (trim_corrupted)
@@ -559,6 +583,22 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
     /// <summary>
     /// </summary>
+    public readonly record struct VersionInfo
+    {
+        /// <summary>
+        /// </summary>
+        public required Int32 FileVersion { get; init; }
+        /// <summary>
+        /// </summary>
+        public required Int32 TypedContentVersion { get; init; }
+        /// <summary>
+        /// </summary>
+        public override String ToString() =>
+            $"{nameof(VersionInfo)}(file={this.FileVersion}, content={this.TypedContentVersion})";
+    }
+
+    /// <summary>
+    /// </summary>
     public readonly struct CommonTypedModelInfo
     {
         /// <summary>
@@ -570,6 +610,62 @@ public abstract class DataStash<TDataStash, TTypedContent>
     }
 
     #region ITypedContent
+
+    /// <summary>
+    /// Set current version of typed content
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+    protected internal sealed class TypedContentAttribute : Attribute
+    {
+        /// <summary>
+        /// </summary>
+        public required Int32 Version { get; init; }
+    }
+
+    /// <summary>
+    /// Adds support for reading an older version of typed content
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
+    protected internal sealed class TypedContentOldVersionAttribute : Attribute
+    {
+        /// <summary>
+        /// </summary>
+        public required Int32 Version { get; init; }
+        /// <summary>
+        /// </summary>
+        public required Type[] ExpectedModelTypes { get; init; }
+        /// <summary>
+        /// </summary>
+        public required Int32[] ExpectedModelVersions { get; init; }
+    }
+
+    /// <summary>
+    /// Sets current version of typed model
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+    protected internal sealed class TypedModelAttribute : Attribute
+    {
+        /// <summary>
+        /// </summary>
+        public required Int32 Version { get; init; }
+    }
+
+    /// <summary>
+    /// Defines an older version of typed model
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
+    protected internal sealed class TypedModelOldVersionAttribute : Attribute
+    {
+        /// <summary>
+        /// </summary>
+        public required Int32 Version { get; init; }
+        /// <summary>
+        /// </summary>
+        public required Type OldFileDataType { get; init; }
+        /// <summary>
+        /// </summary>
+        public required Type OldParentModel { get; init; }
+    }
 
     /// <summary>
     /// </summary>
@@ -600,7 +696,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
         /// <summary>
         /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
         /// </summary>
-        public abstract void ApplyBlock(CommonTypedModelInfo common_info, ReadContext context);
+        public abstract void ApplyBlock(VersionInfo version, CommonTypedModelInfo common_info, ReadContext context);
 
         /// <summary>
         /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
@@ -617,8 +713,8 @@ public abstract class DataStash<TDataStash, TTypedContent>
         /// <param name="block_locations"></param>
         public abstract void LogSealHeldByBlocks(String file_group_description, BlockLocation[] block_locations);
 
-        internal void Resave(Stream stream) =>
-            this.Resave(new ResaveContext(stream));
+        internal void Resave(Stream stream, Int32 current_typed_content_version) =>
+            this.Resave(new ResaveContext(stream, current_typed_content_version));
         /// <summary>
         /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
         /// </summary>
@@ -701,7 +797,9 @@ public abstract class DataStash<TDataStash, TTypedContent>
         where TModel : class, ITypedModel<TFileData>
     {
         /// <summary>
-        /// Adds block's content from file to this instance, and returns newly created representation of this block
+        /// Adds block's content from file or network request to this instance, and returns newly created representation of this block
+        /// <para/>
+        /// is_new means the block is newly created from network request
         /// </summary>
         /// <param name="common_info"></param>
         /// <param name="content"></param>
@@ -754,6 +852,23 @@ public abstract class DataStash<TDataStash, TTypedContent>
         /// <summary>
         /// </summary>
         public static abstract TKey GetModelKey(TModel model);
+    }
+
+    /// <summary>
+    /// Implemented by typed file content type to define an upgrade path for typed model
+    /// </summary>
+    /// <typeparam name="TModel"></typeparam>
+    /// <typeparam name="TOldFileData"></typeparam>
+    /// <typeparam name="TOldParentModel"></typeparam>
+    public interface ITypedContentWithBlockUpgradePath<TModel, TOldFileData, TOldParentModel>
+    {
+        /// <summary>
+        /// Adds block's content from file to this instance
+        /// </summary>
+        /// <param name="common_info"></param>
+        /// <param name="parent"></param>
+        /// <param name="content"></param>
+        public void ReadBlockOldVersion(CommonTypedModelInfo common_info, TOldParentModel parent, TOldFileData content);
     }
 
     #endregion
@@ -876,12 +991,12 @@ public abstract class DataStash<TDataStash, TTypedContent>
                     }
                     var block_enumerators = files.ToArray(file =>
                     {
-                        return ReadFileBlocks(
+                        return this.data_stash.ReadFileBlocks(
                             $"{this.id}[{file.ind}]",
                             file.fs,
                             trim_corrupted: true,
                             id => new PendingBlockLocation(this, file.ind, id),
-                            block_open_status_consumers:
+                            pending_file_read_info:
                             (
                                 on_open: location =>
                                 {
@@ -894,7 +1009,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                                         throw new InvalidOperationException($"Pending state is corrupted: Block at {location} is not open");
                                     this.typed_content.CloseModel(location);
                                 }
-                        )
+                        ) //TODO VS formatting fail
                         ).GetEnumerator();
                     });
                     var inds_with_next = Enumerable.Range(0, this.file_count).Where(ind => block_enumerators[ind].MoveNext()).ToList();
@@ -902,10 +1017,10 @@ public abstract class DataStash<TDataStash, TTypedContent>
                     while (inds_with_next.Count != 0)
                     {
                         var ind = inds_with_next.MinBy(ind => block_enumerators[ind].Current.common_info.RecordTimeUtc);
+                        var (version, common_info, block_br) = block_enumerators[ind].Current;
 
-                        var (common_info, block_br) = block_enumerators[ind].Current;
                         used_ids.Add(common_info.Location.BlockId);
-                        this.typed_content.ApplyBlock(common_info, new(files[ind].fs.Position, common_info.Location, block_br));
+                        this.typed_content.ApplyBlock(version, common_info, new(files[ind].fs.Position, common_info.Location, block_br));
 
                         if (!block_enumerators[ind].MoveNext())
                             inds_with_next.Remove(ind);
@@ -962,6 +1077,8 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
                 this.writers[Index].Enqueue(bw =>
                 {
+                    bw.WriteData(FileHeader.CurrentVersion);
+                    bw.Write(this.data_stash.CurrentTypedContentVersion);
                     bw.WriteEnum(EBlockKind.Data);
                     var pos1 = bw.BaseStream.Position;
                     bw.Write(-1); // block len placeholder
@@ -993,6 +1110,8 @@ public abstract class DataStash<TDataStash, TTypedContent>
                 throw new InvalidOperationException($"Pending state is corrupted: Block at {location} was not open");
             this.writers[location.FileIndex].Enqueue(bw =>
             {
+                bw.WriteData(FileHeader.CurrentVersion);
+                bw.Write(this.data_stash.CurrentTypedContentVersion);
                 bw.WriteEnum(EBlockKind.Close);
                 if (this.data_stash.log_all_added)
                     Prompt.Notify($"{location}: Writing block close @ {bw.BaseStream.Position}");
@@ -1027,7 +1146,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
             var merge_file_path = Path.Combine(merge_dir.FullName, $"{this.id}{file_ext}");
             var final_file_path = Path.Combine(this.data_stash.root_dir.FullName, $"{this.id}{file_ext}");
             using (var fs = File.Open(merge_file_path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                this.typed_content.Resave(fs);
+                this.typed_content.Resave(fs, this.data_stash.CurrentTypedContentVersion);
             File.Move(merge_file_path, final_file_path, overwrite: false);
             merge_dir.Delete(recursive: false);
 
@@ -1102,7 +1221,10 @@ public abstract class DataStash<TDataStash, TTypedContent>
                         {
                             var bw = new BinaryWriter(fs);
                             if (fs.Position == 0)
+                            {
                                 bw.WriteData(new FileHeader());
+                                bw.Write(this.data_stash.CurrentTypedContentVersion);
+                            }
                             foreach (var action in actions)
                                 action.Invoke(bw);
                             bw.Flush();
@@ -1120,13 +1242,20 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
     }
 
+    #region FileHeader
+
     [AutoSerializedData]
-    [VersionedData(Version = 1)]
-    private readonly struct FileHeader()
+    private struct FileHeader()
     {
+        //TODO UniversalBin does not allow an easy way to get version out after upgrading
+        // - Wait until I need different shape of FileHeader before thinking how to handle it best
+        public static readonly Int32 CurrentVersion = 2;
+        public Int32 Version = CurrentVersion;
         public static readonly UInt32 ExpectedMagicNumber = BinaryPrimitives.ReverseEndianness(0xDA7A57A5);
         public readonly UInt32 MagicNumber = ExpectedMagicNumber;
     }
+
+    #endregion
 
     /// <summary>
     /// Unique within one <see cref="FileId"/>
@@ -1298,10 +1427,11 @@ public abstract class DataStash<TDataStash, TTypedContent>
         private readonly IdAllocator<BlockId> new_id_allocator = new();
         private readonly Dictionary<BlockLocation, BlockId> location_to_new_id = [];
 
-        internal ResaveContext(Stream stream)
+        internal ResaveContext(Stream stream, Int32 current_typed_content_version)
         {
             this.bw = new BinaryWriter(stream);
             this.bw.WriteData(new FileHeader());
+            this.bw.Write(current_typed_content_version);
         }
 
         /// <summary>
@@ -1501,7 +1631,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
                             var merge_file_path = Path.Combine(merge_dir.FullName, $"{id_keep}{file_ext}");
                             using (var fs = File.Open(merge_file_path, FileMode.CreateNew))
-                                content.Resave(fs);
+                                content.Resave(fs, this.data_stash.CurrentTypedContentVersion);
 
                             Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Validating after consolidating {id_merge} => {id_keep}");
                             try
