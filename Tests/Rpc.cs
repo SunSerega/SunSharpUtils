@@ -219,10 +219,10 @@ public class Rpc
 internal static partial class ExampleRpcApi
 {
 
-    [RpcApi]
+    [RpcApi(TriesLimit = 3)]
     public static partial void Method1(Int32 x);
 
-    [RpcApi]
+    [RpcApi(TriesLimit = 5)]
     public static partial Int32 Method2();
 
     [RpcApi]

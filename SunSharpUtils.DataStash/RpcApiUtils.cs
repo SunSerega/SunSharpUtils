@@ -240,12 +240,14 @@ public static class RpcApiUtils
 
         /// <summary>
         /// </summary>
-        public void Connect(Action<Connection, CancellationToken> act, Boolean ignore_when_canceled, CancellationToken extra_cancel_token)
+        public void Connect(Action<Connection, CancellationToken> act, Int32? tries_limit, Boolean ignore_when_canceled, CancellationToken extra_cancel_token)
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(this.ConfigOrThrow.CancelToken, extra_cancel_token);
             var cancel_token = cts.Token;
+            var try_i = 0;
             while (true)
             {
+                try_i += 1;
                 cancel_token.ThrowIfCancellationRequested();
                 try
                 {
@@ -260,7 +262,7 @@ public static class RpcApiUtils
                         break;
                     throw;
                 }
-                catch (Exception ex) when (ex is not ConnectionReturnedErrorException)
+                catch (Exception ex) when (!(try_i >= tries_limit) && ex is not ConnectionReturnedErrorException)
                 {
                     Err.Handle($"{this}: Error communicating Client=>Server\n{ex}");
                     cancel_token.ThrowIfCancellationRequested();
@@ -270,17 +272,17 @@ public static class RpcApiUtils
         }
         /// <summary>
         /// </summary>
-        public void Connect(Action<Connection, CancellationToken> act, CancellationToken extra_cancel_token) =>
-            this.Connect(act, ignore_when_canceled: false, extra_cancel_token);
+        public void Connect(Action<Connection, CancellationToken> act, Int32? tries_limit, CancellationToken extra_cancel_token) =>
+            this.Connect(act, tries_limit, ignore_when_canceled: false, extra_cancel_token);
         /// <summary>
         /// </summary>
-        public T Connect<T>(Func<Connection, CancellationToken, T> act, CancellationToken extra_cancel_token)
+        public T Connect<T>(Func<Connection, CancellationToken, T> act, Int32? tries_limit, CancellationToken extra_cancel_token)
         {
             var result = default(ValueTuple<T>?);
             this.Connect((conn, token) =>
             {
                 result = new(act.Invoke(conn, token));
-            }, ignore_when_canceled: false, extra_cancel_token);
+            }, tries_limit, ignore_when_canceled: false, extra_cancel_token);
             return (result ?? throw null!).Item1;
         }
 

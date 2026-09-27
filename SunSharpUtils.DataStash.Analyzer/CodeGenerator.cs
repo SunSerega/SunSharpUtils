@@ -56,13 +56,13 @@ internal class CodeGenerator : IIncrementalGenerator
         var rpc_api_methods = context.SyntaxProvider.ForAttributeWithMetadataName(
             typeof(RpcApiAttribute).FullName!,
             (node, _) => true,
-            (context, _) => (IMethodSymbol)context.TargetSymbol
+            (context, _) => (method: (IMethodSymbol)context.TargetSymbol, auto_gen_attrib: context.Attributes.Single(a => a.AttributeClass!.Name == nameof(RpcApiAttribute)))
         ).Collect();
         context.RegisterSourceOutput(rpc_api_methods, (context, symbols) =>
         {
             try
             {
-                foreach (var g in symbols.GroupBy(s => s.ContainingType, SymbolEqualityComparer.Default))
+                foreach (var g in symbols.GroupBy(t => t.method.ContainingType, SymbolEqualityComparer.Default))
                 {
                     var containing_type = (INamedTypeSymbol?)g.Key ?? throw new InvalidOperationException("Containing type is null");
                     var namespace_name = containing_type.ContainingNamespace.IsGlobalNamespace ? null : containing_type.ContainingNamespace.ToDisplayString();
@@ -70,21 +70,42 @@ internal class CodeGenerator : IIncrementalGenerator
                     if (!containing_type.ValidateAsPartialClass(context, "DS_RPC001", "DS_RPC002"))
                         continue;
 
-                    var methods = g.Select(m =>
+                    var methods = g.Select(t =>
                     {
-                        if (m.Parameters.Length >= 2 && m.Parameters is [.., var stream_callback_param, var read_cancel_token_param] && stream_callback_param.Type.TypeKind is TypeKind.Delegate)
+                        var (method, auto_gen_attrib) = t;
+
+                        var auto_gen_attrib_args = auto_gen_attrib.NamedArguments.ToDictionary(kv => kv.Key, kv => kv.Value);
+
+                        var tries_limit = default(Int32?);
+                        if (auto_gen_attrib_args.TryGetValue(nameof(RpcApiAttribute.TriesLimit), out var tries_limit_const))
+                        {
+                            tries_limit = (Int32)tries_limit_const.Value!;
+                            if (tries_limit < 1)
+                            {
+                                method.ReportOnAllDeclaringSyntax(
+                                    context,
+                                    id: "DS_RPC007",
+                                    title: "Invalid TriesLimit for RPC method",
+                                    messageFormat: "RPC method '{0}' has invalid TriesLimit value '{1}', must be >= 1",
+                                    DiagnosticSeverity.Error,
+                                    args: [method.Name, tries_limit]
+                                );
+                            }
+                        }
+
+                        if (method.Parameters.Length >= 2 && method.Parameters is [.., var stream_callback_param, var read_cancel_token_param] && stream_callback_param.Type.TypeKind is TypeKind.Delegate)
                         {
                             var del_type = (INamedTypeSymbol)stream_callback_param.Type;
                             var del_invoke_method = del_type.DelegateInvokeMethod ?? throw new InvalidOperationException($"Delegate type {del_type.ToDisplayString()} has no invoke method");
                             if (!del_invoke_method.ReturnsVoid && del_invoke_method.ReturnType.ToDisplayString() != typeof(Task).FullName)
                             {
-                                m.ReportOnAllDeclaringSyntax(
+                                method.ReportOnAllDeclaringSyntax(
                                     context,
                                     id: "DS_RPC003",
                                     title: "Invalid delegate return type for RPC method",
                                     messageFormat: "RPC method '{0}' with streamed parameter '{1}' must return either void or Task, not '{2}'",
                                     DiagnosticSeverity.Error,
-                                    args: [m.Name, stream_callback_param.Name, del_invoke_method.ReturnType.ToDisplayString()]
+                                    args: [method.Name, stream_callback_param.Name, del_invoke_method.ReturnType.ToDisplayString()]
                                 );
                             }
                             var del_params = del_invoke_method.Parameters;
@@ -101,45 +122,46 @@ internal class CodeGenerator : IIncrementalGenerator
                             }
                             else
                             {
-                                m.ReportOnAllDeclaringSyntax(
+                                method.ReportOnAllDeclaringSyntax(
                                     context,
                                     id: "DS_RPC004",
                                     title: "Invalid delegate parameter for RPC method",
                                     messageFormat: "RPC method '{0}' with streamed parameter '{1}' must have a second to last parameter of type RpcEnumerable<T>",
                                     DiagnosticSeverity.Error,
-                                    args: [m.Name, stream_callback_param.Name]
+                                    args: [method.Name, stream_callback_param.Name]
                                 );
                             }
 
                             if (read_cancel_token_param.Type.ToDisplayString() != typeof(CancellationToken).FullName)
                             {
-                                m.ReportOnAllDeclaringSyntax(
+                                method.ReportOnAllDeclaringSyntax(
                                     context,
                                     id: "DS_RPC005",
                                     title: "Invalid read cancel token parameter for RPC method",
                                     messageFormat: "RPC method '{0}' with streamed parameter '{1}' must have a last parameter of type CancellationToken",
                                     DiagnosticSeverity.Error,
-                                    args: [m.Name, stream_callback_param.Name]
+                                    args: [method.Name, stream_callback_param.Name]
                                 );
                             }
 
-                            if (!m.ReturnsVoid)
+                            if (!method.ReturnsVoid)
                             {
-                                m.ReportOnAllDeclaringSyntax(
+                                method.ReportOnAllDeclaringSyntax(
                                     context,
                                     id: "DS_RPC006",
                                     title: "Invalid return type for RPC method",
                                     messageFormat: "RPC method '{0}' with streamed parameter '{1}' must return void, not '{2}'",
                                     DiagnosticSeverity.Error,
-                                    args: [m.Name, stream_callback_param.Name, m.ReturnType.ToDisplayString()]
+                                    args: [method.Name, stream_callback_param.Name, method.ReturnType.ToDisplayString()]
                                 );
                             }
 
                             return new RpcApi.MethodStreamed
                             {
-                                Name = m.Name,
-                                Accessibility = m.DeclaredAccessibility.ConvertToGenStr(),
-                                NonStreamedParameters = m.Parameters[..^2].ToArray(p => new RpcApi.NameAndType
+                                TriesLimit = tries_limit,
+                                Name = method.Name,
+                                Accessibility = method.DeclaredAccessibility.ConvertToGenStr(),
+                                NonStreamedParameters = method.Parameters[..^2].ToArray(p => new RpcApi.NameAndType
                                 {
                                     Name = p.Name,
                                     Type = p.Type.ToDisplayString()
@@ -162,10 +184,11 @@ internal class CodeGenerator : IIncrementalGenerator
 
                         return (RpcApi.Method)new RpcApi.MethodOneOff
                         {
-                            Name = m.Name,
-                            Accessibility = m.DeclaredAccessibility.ConvertToGenStr(),
-                            ReturnType = m.ReturnType.SpecialType is SpecialType.System_Void ? null : m.ReturnType.ToDisplayString(),
-                            Parameters = m.Parameters.ToArray(p => new RpcApi.NameAndType
+                            TriesLimit = tries_limit,
+                            Name = method.Name,
+                            Accessibility = method.DeclaredAccessibility.ConvertToGenStr(),
+                            ReturnType = method.ReturnType.SpecialType is SpecialType.System_Void ? null : method.ReturnType.ToDisplayString(),
+                            Parameters = method.Parameters.ToArray(p => new RpcApi.NameAndType
                             {
                                 Name = p.Name,
                                 Type = p.Type.ToDisplayString()
@@ -402,6 +425,7 @@ internal class CodeGenerator : IIncrementalGenerator
 
                             foreach (var method in methods)
                             {
+                                var tries_limit_str = method.TriesLimit is { } tries_limit ? tries_limit.ToString() : "null";
                                 switch (method)
                                 {
                                     case RpcApi.MethodOneOff one_off_method:
@@ -436,7 +460,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                             }
                                             if (one_off_method.ReturnType is { } ret_type)
                                                 gen += $"return conn.ReadMessage((br, _) => br.ReadData<{ret_type}>());";
-                                        }, "{", "}, extra_cancel_token: default);");
+                                        }, "{", $"}}, tries_limit: {tries_limit_str}, extra_cancel_token: default);");
                                         break;
                                     }
                                     case RpcApi.MethodStreamed streamed_method:
@@ -536,7 +560,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                                         gen *= ".GetAwaiter().GetResult()";
                                                     gen *= ";";
                                                 });
-                                            }, "{", $"}}, ignore_when_canceled: true, {streamed_method.ReadCancelTokenParameterName}));");
+                                            }, "{", $"}}, tries_limit: {tries_limit_str}, ignore_when_canceled: true, {streamed_method.ReadCancelTokenParameterName}));");
                                         });
                                         break;
                                     }
@@ -570,7 +594,6 @@ internal class CodeGenerator : IIncrementalGenerator
         {
             try
             {
-                //TODO I'm not using auto_gen_attrib anymore
                 var (data_stash_type, auto_gen_attrib) = gen_item;
                 if (data_stash_type.BaseType is not { } data_stash_base_type || data_stash_base_type.Name != nameof(DataStash<,>) || data_stash_base_type.TypeArguments.Length != 2)
                 {
@@ -1386,6 +1409,7 @@ internal class CodeGenerator : IIncrementalGenerator
 
         public abstract class Method
         {
+            public required Int32? TriesLimit { get; init; }
             public required String Name { get; init; }
             public required String Accessibility { get; init; }
 

@@ -3,10 +3,11 @@
 namespace SunSharpUtils.DataStash;
 
 /// <summary>
-/// 
 /// </summary>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
-public class RpcApiAttribute(/*Boolean is_streamed*/) : Attribute
+public class RpcApiAttribute : Attribute
 {
-    //public Boolean IsStreamed { get; } = is_streamed;
+    /// <summary>
+    /// </summary>
+    public Int32 TriesLimit { get; init; } = -1;
 }
