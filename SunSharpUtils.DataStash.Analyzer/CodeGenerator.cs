@@ -227,10 +227,13 @@ internal class CodeGenerator : IIncrementalGenerator
                         });
                         gen += $"";
 
-                        gen += $"{containing_type.DeclaredAccessibility.ConvertToGenStr()} static partial class {containing_type.Name}";
+                        var is_static = containing_type.IsStatic;
+                        var static_str = is_static ? "static " : "";
+                        var this_str = is_static ? "" : "this.";
+                        gen += $"{containing_type.DeclaredAccessibility.ConvertToGenStr()} {static_str}partial class {containing_type.Name}";
                         gen.AddBlock(gen =>
                         {
-                            gen += $"public static readonly {GenConstants.ClientConnectorClassName} ClientConnector = new(\"{containing_type.Name}\");";
+                            gen += $"public {static_str}readonly {GenConstants.ClientConnectorClassName} ClientConnector = new(\"{containing_type.Name}\");";
                             gen += $"";
 
                             gen += $"public readonly struct ProcessClientConfig";
@@ -433,7 +436,9 @@ internal class CodeGenerator : IIncrementalGenerator
                                         gen.AddLine(gen =>
                                         {
                                             gen *= one_off_method.Accessibility;
-                                            gen *= " static partial ";
+                                            gen *= " ";
+                                            gen *= static_str;
+                                            gen *= "partial ";
                                             gen *= one_off_method.ReturnType ?? "void";
                                             gen *= " ";
                                             gen *= one_off_method.Name;
@@ -444,7 +449,9 @@ internal class CodeGenerator : IIncrementalGenerator
                                                 gen *= " ";
                                                 gen *= param.Name;
                                             }, ", ");
-                                            gen *= ") => ClientConnector.Connect((conn, _) =>";
+                                            gen *= ") => ";
+                                            gen *= this_str;
+                                            gen *= "ClientConnector.Connect((conn, _) =>";
                                         });
                                         gen.AddBlock(gen =>
                                         {
@@ -506,7 +513,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                                 gen += $"IsBackground = false,";
                                             }, "{", "};");
                                             gen += $"thr.Start();";
-                                            gen += $"void ThreadProc() => Err.HandleDuring(() => ClientConnector.Connect((conn, _) =>";
+                                            gen += $"void ThreadProc() => Err.HandleDuring(() => {this_str}ClientConnector.Connect((conn, _) =>";
                                             gen.AddBlock(gen =>
                                             {
                                                 gen += $"conn.WriteMessage((bw, _) => bw.WriteEnum(EClientCommand.{streamed_method.Name}));";
