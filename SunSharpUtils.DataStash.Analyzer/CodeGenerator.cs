@@ -347,7 +347,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                                         });
                                                         if (one_off_method.ReturnType is not null)
                                                             gen += $"connection.WriteMessage((bw, _) => bw.WriteData(result));";
-                                                    }, "{", "});");
+                                                    }, "{", "}, config.CancelToken);");
                                                     break;
                                                 case RpcApi.MethodStreamed streamed_method:
                                                     GenReadParameters(streamed_method.NonStreamedParameters);
@@ -382,7 +382,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                                             }, "{", "});");
                                                         }
                                                         gen += $"enumerable_source.Subscribe(connection);";
-                                                    }, "{", "});");
+                                                    }, "{", "}, config.CancelToken);");
                                                     gen += $"keep_connection_open = true;";
                                                     break;
                                                 default:
@@ -436,7 +436,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                             }
                                             if (one_off_method.ReturnType is { } ret_type)
                                                 gen += $"return conn.ReadMessage((br, _) => br.ReadData<{ret_type}>());";
-                                        }, "{", "});");
+                                        }, "{", "}, extra_cancel_token: default);");
                                         break;
                                     }
                                     case RpcApi.MethodStreamed streamed_method:
@@ -536,7 +536,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                                         gen *= ".GetAwaiter().GetResult()";
                                                     gen *= ";";
                                                 });
-                                            }, "{", "}));");
+                                            }, "{", $"}}, ignore_when_canceled: true, {streamed_method.ReadCancelTokenParameterName}));");
                                         });
                                         break;
                                     }

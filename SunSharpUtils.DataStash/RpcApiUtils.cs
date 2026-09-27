@@ -50,7 +50,7 @@ public static class RpcApiUtils
 
         /// <summary>
         /// </summary>
-        public async Task ReportErrorsWhileAsync(Func<Task> act)
+        public async Task ReportErrorsWhileAsync(Func<Task> act, CancellationToken extra_cancel_token)
         {
             try
             {
@@ -60,7 +60,10 @@ public static class RpcApiUtils
             {
                 this.had_error = true;
                 if (this.IsConnected)
-                    Err.Handle(ex);
+                {
+                    if (!this.cancel_token.IsCancellationRequested && !extra_cancel_token.IsCancellationRequested || !ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
+                        Err.Handle(ex);
+                }
                 Err.HandleDuring(() => this.Finish(error_message: ex.ToString()));
                 throw;
             }
@@ -68,19 +71,19 @@ public static class RpcApiUtils
 
         /// <summary>
         /// </summary>
-        public void ReportErrorsWhile(Action act) =>
-            this.ReportErrorsWhileAsync(() => { act.Invoke(); return Task.CompletedTask; }).GetAwaiter().GetResult();
+        public void ReportErrorsWhile(Action act, CancellationToken extra_cancel_token) =>
+            this.ReportErrorsWhileAsync(() => { act.Invoke(); return Task.CompletedTask; }, extra_cancel_token).GetAwaiter().GetResult();
 
         /// <summary>
         /// </summary>
         public void WriteMessage(Action<BinaryWriter, CancellationToken> write_payload) =>
-            this.ReportErrorsWhile(() => this.Write(EPacketKind.Message, write_payload));
+            this.ReportErrorsWhile(() => this.Write(EPacketKind.Message, write_payload), CancellationToken.None);
 
         /// <summary>
         /// </summary>
         public async Task ReadMessageAsync(Action<BinaryReader, CancellationToken> read_payload, CancellationToken read_cancel_token)
         {
-            await this.ReportErrorsWhileAsync(() => this.ReadAsync(on_finish: () => throw new InvalidDataException($"{this}: Finished when expected to read a message"), on_message: read_payload, read_cancel_token));
+            await this.ReportErrorsWhileAsync(() => this.ReadAsync(on_finish: () => throw new InvalidDataException($"{this}: Finished when expected to read a message"), on_message: read_payload, read_cancel_token), read_cancel_token);
             this.cancel_token.ThrowIfCancellationRequested();
         }
 
@@ -89,7 +92,7 @@ public static class RpcApiUtils
         public async Task<T> ReadMessageAsync<T>(Func<BinaryReader, CancellationToken, T> read_payload, CancellationToken read_cancel_token)
         {
             var result = default(ValueTuple<T>?);
-            await this.ReportErrorsWhileAsync(() => this.ReadAsync(on_finish: () => throw new InvalidDataException($"{this}: Finished when expected to read a message"), on_message: (br, cancel_token) => result = new(read_payload(br, cancel_token)), read_cancel_token));
+            await this.ReportErrorsWhileAsync(() => this.ReadAsync(on_finish: () => throw new InvalidDataException($"{this}: Finished when expected to read a message"), on_message: (br, cancel_token) => result = new(read_payload(br, cancel_token)), read_cancel_token), read_cancel_token);
             return (result ?? throw null!).Item1;
         }
 
@@ -111,7 +114,7 @@ public static class RpcApiUtils
 
         /// <summary>
         /// </summary>
-        public void Dispose() => Err.HandleDuring(this.FinishWithoutError);
+        public void Dispose() => Err.HandleDuring(() => this.Finish(error_message: this.cancel_token.IsCancellationRequested ? "Connection was canceled" : null));
 
         private enum EPacketKind : Byte
         {
@@ -187,7 +190,8 @@ public static class RpcApiUtils
                 {
                     bw.WriteNullableClass(error_message, (bw, error_message) => bw.Write(error_message));
                 });
-                this.ReadAsync(on_finish: () => { }, on_message: (_, _) => throw new InvalidDataException($"{this}: Expected finish packet, but got message packet"), CancellationToken.None).GetAwaiter().GetResult();
+                if (!this.cancel_token.IsCancellationRequested)
+                    this.ReadAsync(on_finish: () => { }, on_message: (_, _) => throw new InvalidDataException($"{this}: Expected finish packet, but got message packet"), CancellationToken.None).GetAwaiter().GetResult();
             }
             finally
             {
@@ -236,9 +240,10 @@ public static class RpcApiUtils
 
         /// <summary>
         /// </summary>
-        public void Connect(Action<Connection, CancellationToken> act)
+        public void Connect(Action<Connection, CancellationToken> act, Boolean ignore_when_canceled, CancellationToken extra_cancel_token)
         {
-            var cancel_token = this.ConfigOrThrow.CancelToken;
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(this.ConfigOrThrow.CancelToken, extra_cancel_token);
+            var cancel_token = cts.Token;
             while (true)
             {
                 cancel_token.ThrowIfCancellationRequested();
@@ -251,7 +256,9 @@ public static class RpcApiUtils
                 }
                 catch (Exception ex) when (cancel_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
                 {
-                    cancel_token.ThrowIfCancellationRequested();
+                    if (ignore_when_canceled)
+                        break;
+                    throw;
                 }
                 catch (Exception ex) when (ex is not ConnectionReturnedErrorException)
                 {
@@ -263,13 +270,17 @@ public static class RpcApiUtils
         }
         /// <summary>
         /// </summary>
-        public T Connect<T>(Func<Connection, CancellationToken, T> act)
+        public void Connect(Action<Connection, CancellationToken> act, CancellationToken extra_cancel_token) =>
+            this.Connect(act, ignore_when_canceled: false, extra_cancel_token);
+        /// <summary>
+        /// </summary>
+        public T Connect<T>(Func<Connection, CancellationToken, T> act, CancellationToken extra_cancel_token)
         {
             var result = default(ValueTuple<T>?);
             this.Connect((conn, token) =>
             {
                 result = new(act.Invoke(conn, token));
-            });
+            }, ignore_when_canceled: false, extra_cancel_token);
             return (result ?? throw null!).Item1;
         }
 
