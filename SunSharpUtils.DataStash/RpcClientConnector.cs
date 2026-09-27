@@ -1,9 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 
 using SunSharpUtils.Ext.Exceptions;
+using SunSharpUtils.Ext.Linq;
 
 namespace SunSharpUtils.DataStash;
 
@@ -57,6 +59,7 @@ public sealed class RpcClientConnector(String target_description)
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(this.ConfigOrThrow.CancelToken, extra_cancel_token);
         var cancel_token = cts.Token;
         var try_i = 0;
+        var errors = new List<Exception>();
         while (true)
         {
             try_i += 1;
@@ -74,8 +77,19 @@ public sealed class RpcClientConnector(String target_description)
                     break;
                 throw;
             }
-            catch (Exception ex) when (!(try_i >= tries_limit) && ex is not RpcConnectionReturnedErrorException)
+            catch (Exception ex) when (tries_limit != 1 && ex is not RpcConnectionReturnedErrorException)
             {
+                if (tries_limit is not null)
+                {
+                    errors.Add(ex);
+                    if (try_i >= tries_limit)
+                    {
+                        var unique_errors = errors.ToLookup(ex => ex.ToString());
+                        var counts_str = unique_errors.Select(g => g.Count()).JoinToString(',');
+                        var nested_exceptions = unique_errors.Select(g => g.First()).ToArray();
+                        throw new AggregateException($"{this}: Failed to connect after {try_i} tries with {unique_errors.Count} unique errors ([{counts_str}] times)", nested_exceptions);
+                    }
+                }
                 Err.Handle($"{this}: Error communicating Client=>Server\n{ex}");
                 cancel_token.ThrowIfCancellationRequested();
                 Thread.Sleep(TimeSpan.FromSeconds(1));
