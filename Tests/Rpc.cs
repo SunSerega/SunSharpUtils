@@ -27,6 +27,7 @@ public class Rpc
         {
             Host = "localhost",
             Port = 12345,
+            CancelToken = default,
         });
 
         var errors = new List<Exception>();
@@ -176,6 +177,25 @@ public class Rpc
         foreach (var ex in errors)
             throw new Exception($"Error during testing of MethodStreamed2", ex);
 
+        await Assert.ThrowsExceptionAsync<ExampleRpcApi.ExpectedException>(() => TestMethod(
+            send: () =>
+            {
+                var ex = Assert.ThrowsException<RpcApiUtils.ConnectionReturnedErrorException>(() =>
+                {
+                    ExampleRpcApi.Method3ExpectedException();
+                });
+                Assert.IsTrue(ex.Message.Contains(nameof(ExampleRpcApi.ExpectedException)), $"Error message does not contain '{nameof(ExampleRpcApi.ExpectedException)}': {ex.Message}");
+            },
+            OnMethod1: (x, _) =>
+                throw new InvalidOperationException("Method1 should not be called here"),
+            OnMethod2: (_) =>
+                throw new InvalidOperationException("Method2 should not be called here"),
+            OnMethodStreamed1: (_, _) =>
+                throw new InvalidOperationException("MethodStreamed1 should not be called here"),
+            OnMethodStreamed2: (_) =>
+                throw new InvalidOperationException("MethodStreamed2 should not be called here")
+        ));
+
         async Task TestMethod(Action send, ExampleRpcApi.ProcessClientConfig.Method1Handler OnMethod1, ExampleRpcApi.ProcessClientConfig.Method2Handler OnMethod2, ExampleRpcApi.ProcessClientConfig.MethodStreamed1Handler OnMethodStreamed1, ExampleRpcApi.ProcessClientConfig.MethodStreamed2Handler OnMethodStreamed2)
         {
             var send_task = Task.Run(send);
@@ -188,6 +208,7 @@ public class Rpc
                 OnMethod2 = OnMethod2,
                 OnMethodStreamed1 = OnMethodStreamed1,
                 OnMethodStreamed2 = OnMethodStreamed2,
+                OnMethod3ExpectedException = _ => throw new ExampleRpcApi.ExpectedException(),
             });
             await send_task;
         }
@@ -209,5 +230,9 @@ internal static partial class ExampleRpcApi
 
     [RpcApi]
     public static partial void MethodStreamed2(Func<Int32, RpcEnumerable<Int32>, Task> on_connected, CancellationToken read_cancel_token);
+
+    public sealed class ExpectedException : Exception;
+    [RpcApi]
+    public static partial void Method3ExpectedException();
 
 }

@@ -1,10 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net.Sockets;
 using System.Threading;
 
-using SunSharpUtils.Ext.Bin;
 using SunSharpUtils.UniversalBin;
 
 namespace SunSharpUtils.DataStash;
@@ -19,31 +17,27 @@ namespace SunSharpUtils.DataStash;
 /// Represents a stream of values continuously received through RPC
 /// </summary>
 /// <typeparam name="T"></typeparam>
-public sealed class RpcEnumerable<T> : IDisposable
+/// <remarks>
+/// </remarks>
+public sealed class RpcEnumerable<T>(RpcApiUtils.Connection connection, CancellationToken read_cancel_token) : IDisposable
     where T : notnull
 {
-    private readonly Socket socket;
-    private readonly CancellationToken cancel_token;
-    private readonly NetworkStream stream;
-    private readonly BinaryReader br;
-    private Int32 existing_values_left;
-    private Boolean is_finished = false;
-
-    /// <param name="socket"></param>
-    /// <param name="read_cancel_token"></param>
-    public RpcEnumerable(Socket socket, CancellationToken read_cancel_token)
+    private readonly RpcApiUtils.Connection connection = connection;
+    private readonly CancellationToken read_cancel_token = read_cancel_token;
+    private readonly Queue<T> existing_values_left = connection.ReadMessage((br, _) =>
     {
-        this.socket = socket;
-        this.cancel_token = read_cancel_token;
-        this.stream = new NetworkStream(socket);
-        this.br = new(this.stream);
-        this.existing_values_left = this.br.ReadInt32();
-    }
+        var count = br.ReadInt32();
+        var queue = new Queue<T>(count);
+        for (var i = 0; i < count; i++)
+            queue.Enqueue(br.ReadData<T>());
+        return queue;
+    });
+    private Boolean is_finished = false;
 
     /// <summary>
     /// Number of unread values that already existed when establishing connection
     /// </summary>
-    public Int32 ExistingValuesLeft => this.existing_values_left;
+    public Int32 ExistingValuesLeft => this.existing_values_left.Count;
 
     /// <summary>
     /// Reads items from the RPC stream
@@ -56,13 +50,8 @@ public sealed class RpcEnumerable<T> : IDisposable
     public async IAsyncEnumerable<T> ReadItemsAsync(Boolean only_existing = false)
     {
 
-        if (this.existing_values_left < 0)
-            throw new InvalidOperationException($"The number of existing values left is negative: {this.existing_values_left}");
-        while (!this.is_finished && this.existing_values_left > 0)
-        {
-            yield return this.br.ReadData<T>();
-            this.existing_values_left -= 1;
-        }
+        while (!this.is_finished && this.existing_values_left.TryDequeue(out var existing_value))
+            yield return existing_value;
 
         if (only_existing)
             yield break;
@@ -70,21 +59,19 @@ public sealed class RpcEnumerable<T> : IDisposable
         var mem = new Memory<Byte>(new Byte[1]);
         while (!this.is_finished)
         {
-            var read_bytes = await this.stream.ReadAsync(mem, this.cancel_token).ConfigureAwait(false);
-            this.cancel_token.ThrowIfCancellationRequested();
-            if (read_bytes == 0)
-                throw new EndOfStreamException();
-            switch (mem.Span[0])
+            var next_or_null = await this.connection.ReadMessageAsync((br, _) =>
             {
-                case 0:
+                var has_next = br.ReadBoolean();
+                if (!has_next)
+                {
                     this.is_finished = true;
-                    yield break;
-                case 1:
-                    yield return this.br.ReadData<T>();
-                    break;
-                default:
-                    throw new InvalidDataException($"Unexpected value received from stream: {mem.Span[0]}");
-            }
+                    return default(ValueTuple<T>?);
+                }
+                return new(br.ReadData<T>());
+            }, this.read_cancel_token);
+            if (next_or_null is not { } next)
+                yield break;
+            yield return next.Item1;
         }
 
     }
@@ -95,7 +82,7 @@ public sealed class RpcEnumerable<T> : IDisposable
     public void Dispose()
     {
         this.is_finished = true;
-        this.socket.Close();
+        this.connection.Dispose();
     }
 
 }
@@ -160,10 +147,10 @@ public sealed class RpcEnumerableSource<T>()
 
     /// <summary>
     /// </summary>
-    public Subscriber Subscribe(Socket socket)
+    public Subscriber Subscribe(RpcApiUtils.Connection connection)
     {
         using var lock_scope = this.l_subscribers_and_items.EnterScope();
-        var subscriber = new Subscriber(this, socket, this.existing_items);
+        var subscriber = new Subscriber(this, connection, this.existing_items);
         this.subscribers.Add(subscriber);
         return subscriber;
     }
@@ -178,34 +165,35 @@ public sealed class RpcEnumerableSource<T>()
     public sealed class Subscriber : IDisposable
     {
         private readonly RpcEnumerableSource<T> source;
-        private readonly Socket socket;
-        private readonly BinaryWriter bw;
+        private readonly RpcApiUtils.Connection connection;
 
-        internal Subscriber(RpcEnumerableSource<T> source, Socket socket, ICollection<T> existing_items)
+        internal Subscriber(RpcEnumerableSource<T> source, RpcApiUtils.Connection connection, ICollection<T> existing_items)
         {
             this.source = source;
-            this.socket = socket;
-            this.bw = new BinaryWriter(new NetworkStream(socket));
-            this.bw.Write(existing_items.Count);
-            foreach (var item in existing_items)
-                this.bw.WriteData(item);
+            this.connection = connection;
+            connection.WriteMessage((bw, cancel_token) =>
+            {
+                bw.Write(existing_items.Count);
+                foreach (var item in existing_items)
+                {
+                    cancel_token.ThrowIfCancellationRequested();
+                    bw.WriteData(item);
+                }
+            });
         }
 
-        internal Boolean IsConnected => this.socket.Connected;
+        internal Boolean IsConnected => this.connection.IsConnected;
 
-        internal void Send(T item)
+        internal void Send(T item) => this.connection.WriteMessage((bw, _) =>
         {
-            this.bw.Write(true);
-            this.bw.WriteData(item);
-            this.bw.Flush();
-        }
+            bw.Write(true);
+            bw.WriteData(item);
+        });
 
         internal void Close()
         {
-            this.bw.Write(false);
-            this.bw.WriteEnum(RpcApiUtils.EServerCommand.Success);
-            this.bw.Flush();
-            this.socket.Close();
+            this.connection.WriteMessage((bw, _) => bw.Write(false));
+            this.connection.FinishWithoutError();
         }
 
         /// <summary>
@@ -213,7 +201,7 @@ public sealed class RpcEnumerableSource<T>()
         public void Dispose()
         {
             this.source.subscribers.Remove(this);
-            Err.HandleDuring(this.socket.Dispose);
+            this.connection.Dispose();
         }
 
     }

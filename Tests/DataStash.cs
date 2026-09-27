@@ -16,8 +16,6 @@ namespace Tests;
 [AutoDataStash]
 internal sealed partial class ExampleDataStash(String states_dir, CancellationToken svc_stop_token) : DataStash<ExampleDataStash, ExampleDataStash.TypedContent>(states_dir, svc_stop_token)
 {
-    //protected override Int32 PreVersioningTypedContentVersion => 1;
-    //protected override Int32 CurrentTypedContentVersion => 1;
 
     protected override TypedContent CreateEmptyTypedContent() => new();
 

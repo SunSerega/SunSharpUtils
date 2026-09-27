@@ -14,6 +14,7 @@ public class OneToManyLock_Tests
 {
 
     //TODO Put into a separate, non-testing project, so that all tests can be run without a GUI
+    // - Actually, this doesn't doesn't run forever, but might still fail on no-GUI environments
     [TestMethod]
     public void VisualStressTest()
     {
@@ -57,7 +58,7 @@ public class OneToManyLock_Tests
             }
             threads.Add(new Thread(() => Err.HandleDuring(one_thr))
             {
-                Name=$"One thr [{i}]"
+                Name = $"One thr [{i}]"
             });
         }
 
@@ -82,7 +83,7 @@ public class OneToManyLock_Tests
             }
             threads.Add(new Thread(() => Err.HandleDuring(many_thr))
             {
-                Name=$"Many thr [{i}]"
+                Name = $"Many thr [{i}]"
             });
         }
 

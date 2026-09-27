@@ -46,4 +46,15 @@ internal sealed class CodeLineGenerator
     public CodeLineGenerator AddSeq<T>(IEnumerable<T> seq, Action<CodeLineGenerator, T> add_el, String sep) =>
         this.AddSeq(seq, add_el, add_sep: gen => gen *= sep);
 
+    public CodeLineGenerator AddSeqWithBrackets<T>(ICollection<T> seq, Action<CodeLineGenerator, T> add_el, String sep, String open_bracket, String close_bracket)
+    {
+        var gen = this;
+        if (seq.Count > 1)
+            gen *= open_bracket;
+        gen.AddSeq(seq, add_el, sep);
+        if (seq.Count > 1)
+            gen *= close_bracket;
+        return gen;
+    }
+
 }
