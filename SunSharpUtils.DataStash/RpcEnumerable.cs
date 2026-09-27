@@ -19,10 +19,10 @@ namespace SunSharpUtils.DataStash;
 /// <typeparam name="T"></typeparam>
 /// <remarks>
 /// </remarks>
-public sealed class RpcEnumerable<T>(RpcApiUtils.Connection connection, CancellationToken read_cancel_token) : IDisposable
+public sealed class RpcEnumerable<T>(RpcConnection connection, CancellationToken read_cancel_token) : IDisposable
     where T : notnull
 {
-    private readonly RpcApiUtils.Connection connection = connection;
+    private readonly RpcConnection connection = connection;
     private readonly CancellationToken read_cancel_token = read_cancel_token;
     private readonly Queue<T> existing_values_left = connection.ReadMessage((br, _) =>
     {
@@ -147,7 +147,7 @@ public sealed class RpcEnumerableSource<T>()
 
     /// <summary>
     /// </summary>
-    public Subscriber Subscribe(RpcApiUtils.Connection connection)
+    public Subscriber Subscribe(RpcConnection connection)
     {
         using var lock_scope = this.l_subscribers_and_items.EnterScope();
         var subscriber = new Subscriber(this, connection, this.existing_items);
@@ -165,9 +165,9 @@ public sealed class RpcEnumerableSource<T>()
     public sealed class Subscriber : IDisposable
     {
         private readonly RpcEnumerableSource<T> source;
-        private readonly RpcApiUtils.Connection connection;
+        private readonly RpcConnection connection;
 
-        internal Subscriber(RpcEnumerableSource<T> source, RpcApiUtils.Connection connection, ICollection<T> existing_items)
+        internal Subscriber(RpcEnumerableSource<T> source, RpcConnection connection, ICollection<T> existing_items)
         {
             this.source = source;
             this.connection = connection;

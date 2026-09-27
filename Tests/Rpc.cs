@@ -180,7 +180,7 @@ public class Rpc
         await Assert.ThrowsExceptionAsync<ExampleRpcApi.ExpectedException>(() => TestMethod(
             send: () =>
             {
-                var ex = Assert.ThrowsException<RpcApiUtils.ConnectionReturnedErrorException>(() =>
+                var ex = Assert.ThrowsException<RpcConnectionReturnedErrorException>(() =>
                 {
                     ExampleRpcApi.Method3ExpectedException();
                 });

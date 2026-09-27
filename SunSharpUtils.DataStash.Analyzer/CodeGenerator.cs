@@ -233,7 +233,7 @@ internal class CodeGenerator : IIncrementalGenerator
                         gen += $"{containing_type.DeclaredAccessibility.ConvertToGenStr()} {static_str}partial class {containing_type.Name}";
                         gen.AddBlock(gen =>
                         {
-                            gen += $"public {static_str}readonly {GenConstants.ClientConnectorClassName} ClientConnector = new(\"{containing_type.Name}\");";
+                            gen += $"public {static_str}readonly {nameof(RpcClientConnector)} ClientConnector = new(\"{containing_type.Name}\");";
                             gen += $"";
 
                             gen += $"public readonly struct ProcessClientConfig";
@@ -300,7 +300,7 @@ internal class CodeGenerator : IIncrementalGenerator
                             gen += $"public static void ProcessClient(ProcessClientConfig config)";
                             gen.AddBlock(gen =>
                             {
-                                gen += $"var connection = new RpcApiUtils.Connection(config.Socket, config.CancelToken);";
+                                gen += $"var connection = new RpcConnection(config.Socket, config.CancelToken);";
                                 gen += $"var keep_connection_open = false;";
                                 gen += $"using var connection_disposer = new LambdaDisposable(() =>";
                                 gen.AddBlock(gen =>
