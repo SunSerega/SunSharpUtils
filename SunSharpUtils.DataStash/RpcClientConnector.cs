@@ -90,25 +90,24 @@ public sealed class RpcClientConnector(String target_description)
                         throw new AggregateException($"{this}: Failed to connect after {try_i} tries with {unique_errors.Count} unique errors ([{counts_str}] times)", nested_exceptions);
                     }
                 }
-                Err.Handle($"{this}: Error communicating Client=>Server\n{ex}");
+                else
+                {
+                    Err.Handle($"{this}: Error communicating Client=>Server\n{ex}");
+                }
+                cancel_token.WaitHandle.WaitOne(TimeSpan.FromSeconds(1));
                 cancel_token.ThrowIfCancellationRequested();
-                Thread.Sleep(TimeSpan.FromSeconds(1));
             }
         }
     }
     /// <summary>
     /// </summary>
-    public void Connect(Action<RpcConnection, CancellationToken> act, Int32? tries_limit, CancellationToken extra_cancel_token) =>
-        this.Connect(act, tries_limit, ignore_when_canceled: false, extra_cancel_token);
-    /// <summary>
-    /// </summary>
-    public T Connect<T>(Func<RpcConnection, CancellationToken, T> act, Int32? tries_limit, CancellationToken extra_cancel_token)
+    public T Connect<T>(Func<RpcConnection, CancellationToken, T> act, Int32? tries_limit, Boolean ignore_when_canceled, CancellationToken extra_cancel_token)
     {
         var result = default(ValueTuple<T>?);
         this.Connect((conn, token) =>
         {
             result = new(act.Invoke(conn, token));
-        }, tries_limit, ignore_when_canceled: false, extra_cancel_token);
+        }, tries_limit, ignore_when_canceled, extra_cancel_token);
         return (result ?? throw null!).Item1;
     }
 

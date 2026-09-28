@@ -28,6 +28,9 @@ public sealed class RpcConnection : IDisposable
     private readonly String description;
     private Boolean had_error = false;
     private Boolean is_finished = false;
+    /// <summary>
+    /// </summary>
+    public event Action? OnFinished = null;
 
     /// <summary>
     /// </summary>
@@ -47,6 +50,10 @@ public sealed class RpcConnection : IDisposable
 
     /// <summary>
     /// </summary>
+    public void ReportError(String error_message) => this.Finish(error_message: error_message);
+
+    /// <summary>
+    /// </summary>
     public async Task ReportErrorsWhileAsync(Func<Task> act, CancellationToken extra_cancel_token)
     {
         try
@@ -61,7 +68,7 @@ public sealed class RpcConnection : IDisposable
                 if (!this.cancel_token.IsCancellationRequested && !extra_cancel_token.IsCancellationRequested || !ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
                     Err.Handle(ex);
             }
-            Err.HandleDuring(() => this.Finish(error_message: ex.ToString()));
+            Err.HandleDuring(() => this.ReportError(error_message: ex.ToString()));
             throw;
         }
     }
@@ -111,7 +118,7 @@ public sealed class RpcConnection : IDisposable
 
     /// <summary>
     /// </summary>
-    public void Dispose() => Err.HandleDuring(() => this.Finish(error_message: this.cancel_token.IsCancellationRequested ? "RpcConnection was canceled" : null));
+    public void Dispose() => Err.HandleDuring(() => this.Finish(error_message: this.cancel_token.IsCancellationRequested ? $"{nameof(RpcConnection)} was canceled" : null));
 
     private enum EPacketKind : Byte
     {
@@ -178,11 +185,13 @@ public sealed class RpcConnection : IDisposable
     {
         try
         {
-            if (this.had_error)
-                return;
             if (this.is_finished)
                 return;
             this.is_finished = true;
+            if (this.OnFinished is { } on_finished)
+                Err.HandleDuring(on_finished);
+            if (this.had_error)
+                return;
             this.Write(EPacketKind.Finish, (bw, _) =>
             {
                 bw.WriteNullableClass(error_message, (bw, error_message) => bw.Write(error_message));

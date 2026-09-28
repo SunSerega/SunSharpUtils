@@ -22,6 +22,11 @@ using SunSharpUtils.UniversalBin;
 
 //TODO Fix error ids once they are stable
 
+//TODO Maybe add statistics to RPC?
+// - A method to start a new thread, collecting calls and their durations
+// - Might as well build ProcessClient into that, because I'm only ever using it from WinSvcCommon.StartSocketListener anyway
+// - Or maybe better add this to WinSvcCommon?
+
 namespace SunSharpUtils.DataStash.Generators;
 
 [Generator]
@@ -74,6 +79,8 @@ internal class CodeGenerator : IIncrementalGenerator
                     {
                         var (method, auto_gen_attrib) = t;
 
+                        #region Attrib args
+
                         var auto_gen_attrib_args = auto_gen_attrib.NamedArguments.ToDictionary(kv => kv.Key, kv => kv.Value);
 
                         var tries_limit = default(Int32?);
@@ -93,24 +100,79 @@ internal class CodeGenerator : IIncrementalGenerator
                             }
                         }
 
-                        if (method.Parameters.Length >= 2 && method.Parameters is [.., var stream_callback_param, var read_cancel_token_param] && stream_callback_param.Type.TypeKind is TypeKind.Delegate)
+                        var block_while_streaming = false;
+                        if (auto_gen_attrib_args.TryGetValue(nameof(RpcApiAttribute.BlockWhileStreaming), out var block_while_streaming_const))
+                            block_while_streaming = (Boolean)block_while_streaming_const.Value!;
+
+                        #endregion
+
+                        if (method.Parameters is [.., var stream_callback_param, var read_cancel_token_param] && stream_callback_param.Type.TypeKind is TypeKind.Delegate)
                         {
                             var del_type = (INamedTypeSymbol)stream_callback_param.Type;
+
                             var del_invoke_method = del_type.DelegateInvokeMethod ?? throw new InvalidOperationException($"Delegate type {del_type.ToDisplayString()} has no invoke method");
-                            if (!del_invoke_method.ReturnsVoid && del_invoke_method.ReturnType.ToDisplayString() != typeof(Task).FullName)
+                            var del_params = del_invoke_method.Parameters;
+
+                            var ret_type_name = default(String?);
+                            if (!method.ReturnsVoid)
+                            {
+                                ret_type_name = method.ReturnType.ToDisplayString();
+                                if (!block_while_streaming)
+                                {
+                                    method.ReportOnAllDeclaringSyntax(
+                                        context,
+                                        id: "DS_RPC009",
+                                        title: "Invalid return type for RPC method",
+                                        messageFormat: "RPC method '{0}' with streamed parameter '{1}' must return void when BlockWhileStreaming is false, not '{2}'",
+                                        DiagnosticSeverity.Error,
+                                        args: [method.Name, stream_callback_param.Name, ret_type_name]
+                                    );
+                                }
+                            }
+
+                            if (read_cancel_token_param.Type.ToDisplayString() != typeof(CancellationToken).FullName)
                             {
                                 method.ReportOnAllDeclaringSyntax(
                                     context,
-                                    id: "DS_RPC003",
-                                    title: "Invalid delegate return type for RPC method",
-                                    messageFormat: "RPC method '{0}' with streamed parameter '{1}' must return either void or Task, not '{2}'",
+                                    id: "DS_RPC005",
+                                    title: "Invalid read cancel token parameter for RPC method",
+                                    messageFormat: "RPC method '{0}' with streamed parameter '{1}' must have a last parameter of type CancellationToken",
                                     DiagnosticSeverity.Error,
-                                    args: [method.Name, stream_callback_param.Name, del_invoke_method.ReturnType.ToDisplayString()]
+                                    args: [method.Name, stream_callback_param.Name]
                                 );
                             }
-                            var del_params = del_invoke_method.Parameters;
 
-                            var stream_type_name = "StreamedItemType";
+                            var del_invoke_ret_type_name = del_invoke_method.ReturnsVoid ? null : del_invoke_method.ReturnType.ToDisplayString();
+                            var callback_is_async = false;
+                            {
+                                var expected_sync_return_type_name = ret_type_name;
+                                var expected_async_return_type_name = typeof(Task).FullName;
+                                if (ret_type_name is not null)
+                                    expected_async_return_type_name += $"<{ret_type_name}>";
+
+                                if (del_invoke_ret_type_name == expected_sync_return_type_name)
+                                {
+                                    callback_is_async = false;
+
+                                }
+                                else if (del_invoke_ret_type_name == expected_async_return_type_name)
+                                {
+                                    callback_is_async = true;
+                                }
+                                else
+                                {
+                                    method.ReportOnAllDeclaringSyntax(
+                                        context,
+                                        id: "DS_RPC006",
+                                        title: "Invalid delegate return type for RPC method",
+                                        messageFormat: "RPC method '{0}' streamed parameter '{1}' must return either '{2}' or '{3}', not '{4}'",
+                                        DiagnosticSeverity.Error,
+                                        args: [method.Name, stream_callback_param.Name, expected_sync_return_type_name ?? "void", expected_async_return_type_name, del_invoke_ret_type_name ?? "void"]
+                                    );
+                                }
+                            }
+
+                            var stream_type_name = "<StreamedItemType>";
                             if (
                                 del_params is [.., var last_del_param] &&
                                 last_del_param.Type is INamedTypeSymbol last_del_param_type &&
@@ -132,33 +194,10 @@ internal class CodeGenerator : IIncrementalGenerator
                                 );
                             }
 
-                            if (read_cancel_token_param.Type.ToDisplayString() != typeof(CancellationToken).FullName)
-                            {
-                                method.ReportOnAllDeclaringSyntax(
-                                    context,
-                                    id: "DS_RPC005",
-                                    title: "Invalid read cancel token parameter for RPC method",
-                                    messageFormat: "RPC method '{0}' with streamed parameter '{1}' must have a last parameter of type CancellationToken",
-                                    DiagnosticSeverity.Error,
-                                    args: [method.Name, stream_callback_param.Name]
-                                );
-                            }
-
-                            if (!method.ReturnsVoid)
-                            {
-                                method.ReportOnAllDeclaringSyntax(
-                                    context,
-                                    id: "DS_RPC006",
-                                    title: "Invalid return type for RPC method",
-                                    messageFormat: "RPC method '{0}' with streamed parameter '{1}' must return void, not '{2}'",
-                                    DiagnosticSeverity.Error,
-                                    args: [method.Name, stream_callback_param.Name, method.ReturnType.ToDisplayString()]
-                                );
-                            }
-
                             return new RpcApi.MethodStreamed
                             {
                                 TriesLimit = tries_limit,
+                                BlockWhileStreaming = block_while_streaming,
                                 Name = method.Name,
                                 Accessibility = method.DeclaredAccessibility.ConvertToGenStr(),
                                 NonStreamedParameters = method.Parameters[..^2].ToArray(p => new RpcApi.NameAndType
@@ -178,10 +217,22 @@ internal class CodeGenerator : IIncrementalGenerator
                                     Type = p.Type.ToDisplayString()
                                 }),
                                 StreamedItemType = stream_type_name,
-                                CallbackReturnsTask = !del_invoke_method.ReturnsVoid,
+                                CallbackIsAsync = callback_is_async,
+                                ReturnType = ret_type_name,
                             };
                         }
 
+                        if (block_while_streaming)
+                        {
+                            method.ReportOnAllDeclaringSyntax(
+                                context,
+                                id: "DS_RPC008",
+                                title: "Invalid BlockWhileStreaming for RPC method",
+                                messageFormat: "RPC method '{0}' has BlockWhileStreaming set to true but does not have a streamed parameter",
+                                DiagnosticSeverity.Error,
+                                args: [method.Name]
+                            );
+                        }
                         return (RpcApi.Method)new RpcApi.MethodOneOff
                         {
                             TriesLimit = tries_limit,
@@ -301,6 +352,8 @@ internal class CodeGenerator : IIncrementalGenerator
                             gen.AddBlock(gen =>
                             {
                                 gen += $"var connection = new RpcConnection(config.Socket, config.CancelToken);";
+                                gen += $"var cts = CancellationTokenSource.CreateLinkedTokenSource(config.CancelToken);";
+                                gen += $"connection.OnFinished += cts.Cancel;";
                                 gen += $"var keep_connection_open = false;";
                                 gen += $"using var connection_disposer = new LambdaDisposable(() =>";
                                 gen.AddBlock(gen =>
@@ -330,6 +383,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                                     gen *= "var ";
                                                     gen.AddSeqWithBrackets(parameters, (gen, param) =>
                                                     {
+                                                        gen *= "_";
                                                         gen *= param.Name;
                                                     }, ", ", "(", ")");
                                                     gen *= " = connection.ReadMessage((br, _) =>";
@@ -337,12 +391,13 @@ internal class CodeGenerator : IIncrementalGenerator
                                                 gen.AddBlock(gen =>
                                                 {
                                                     foreach (var parameter in parameters)
-                                                        gen += $"var {parameter.Name} = br.ReadData<{parameter.Type}>();";
+                                                        gen += $"var _{parameter.Name} = br.ReadData<{parameter.Type}>();";
                                                     gen.AddLine(gen =>
                                                     {
                                                         gen *= "return ";
                                                         gen.AddSeqWithBrackets(parameters, (gen, param) =>
                                                         {
+                                                            gen *= "_";
                                                             gen *= param.Name;
                                                         }, ", ", "(", ")");
                                                         gen *= ";";
@@ -366,10 +421,11 @@ internal class CodeGenerator : IIncrementalGenerator
                                                             gen *= ".Invoke(";
                                                             foreach (var parameter in one_off_method.Parameters)
                                                             {
+                                                                gen *= "_";
                                                                 gen *= parameter.Name;
                                                                 gen *= ", ";
                                                             }
-                                                            gen *= "config.CancelToken);";
+                                                            gen *= "cts.Token);";
                                                         });
                                                         if (one_off_method.ReturnType is not null)
                                                             gen += $"connection.WriteMessage((bw, _) => bw.WriteData(result));";
@@ -393,10 +449,11 @@ internal class CodeGenerator : IIncrementalGenerator
                                                             gen *= ".Invoke(";
                                                             foreach (var parameter in streamed_method.NonStreamedParameters)
                                                             {
+                                                                gen *= "_";
                                                                 gen *= parameter.Name;
                                                                 gen *= ", ";
                                                             }
-                                                            gen *= "config.CancelToken);";
+                                                            gen *= "cts.Token);";
                                                         });
                                                         if (streamed_method.ReturnedValues.Length != 0)
                                                         {
@@ -467,7 +524,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                             }
                                             if (one_off_method.ReturnType is { } ret_type)
                                                 gen += $"return conn.ReadMessage((br, _) => br.ReadData<{ret_type}>());";
-                                        }, "{", $"}}, tries_limit: {tries_limit_str}, extra_cancel_token: default);");
+                                        }, "{", $"}}, tries_limit: {tries_limit_str}, ignore_when_canceled: false, extra_cancel_token: default);");
                                         break;
                                     }
                                     case RpcApi.MethodStreamed streamed_method:
@@ -475,7 +532,10 @@ internal class CodeGenerator : IIncrementalGenerator
                                         gen.AddLine(gen =>
                                         {
                                             gen *= streamed_method.Accessibility;
-                                            gen *= " static partial void";
+                                            gen *= " ";
+                                            gen *= static_str;
+                                            gen *= "partial ";
+                                            gen *= streamed_method.ReturnType ?? "void";
                                             gen *= " ";
                                             gen *= streamed_method.Name;
                                             gen *= "(";
@@ -492,82 +552,109 @@ internal class CodeGenerator : IIncrementalGenerator
                                         });
                                         gen.AddBlock(gen =>
                                         {
-                                            gen += $"var thr = new Thread(ThreadProc)";
-                                            gen.AddBlock(gen =>
+                                            void GenConnectCall()
                                             {
                                                 gen.AddLine(gen =>
                                                 {
-                                                    gen *= "Name = $\"";
-                                                    gen *= containing_type.Name;
-                                                    gen *= ".";
-                                                    gen *= streamed_method.Name;
-                                                    gen *= "(";
-                                                    gen.AddSeq(streamed_method.NonStreamedParameters, (gen, param) =>
-                                                    {
-                                                        gen *= "{";
-                                                        gen *= param.Name;
-                                                        gen *= "}";
-                                                    }, ", ");
-                                                    gen *= ") processing thread\",";
+                                                    if (streamed_method.ReturnType is not null)
+                                                        gen *= "return ";
+                                                    gen *= this_str;
+                                                    gen *= "ClientConnector.Connect((conn, _) =>";
                                                 });
-                                                gen += $"IsBackground = false,";
-                                            }, "{", "};");
-                                            gen += $"thr.Start();";
-                                            gen += $"void ThreadProc() => Err.HandleDuring(() => {this_str}ClientConnector.Connect((conn, _) =>";
-                                            gen.AddBlock(gen =>
-                                            {
-                                                gen += $"conn.WriteMessage((bw, _) => bw.WriteEnum(EClientCommand.{streamed_method.Name}));";
-                                                if (streamed_method.NonStreamedParameters.Length != 0)
+                                                gen.AddBlock(gen =>
                                                 {
-                                                    gen += $"conn.WriteMessage((bw, _) =>";
-                                                    gen.AddBlock(gen =>
+                                                    gen += $"conn.WriteMessage((bw, _) => bw.WriteEnum(EClientCommand.{streamed_method.Name}));";
+                                                    if (streamed_method.NonStreamedParameters.Length != 0)
                                                     {
-                                                        foreach (var parameter in streamed_method.NonStreamedParameters)
-                                                            gen += $"bw.WriteData({parameter.Name});";
-                                                    }, "{", "});");
-                                                }
-                                                if (streamed_method.ReturnedValues.Length != 0)
+                                                        gen += $"conn.WriteMessage((bw, _) =>";
+                                                        gen.AddBlock(gen =>
+                                                        {
+                                                            foreach (var parameter in streamed_method.NonStreamedParameters)
+                                                                gen += $"bw.WriteData({parameter.Name});";
+                                                        }, "{", "});");
+                                                    }
+                                                    if (streamed_method.ReturnedValues.Length != 0)
+                                                    {
+                                                        gen.AddLine(gen =>
+                                                        {
+                                                            gen *= "var ";
+                                                            gen.AddSeqWithBrackets(streamed_method.ReturnedValues, (gen, param) =>
+                                                            {
+                                                                gen *= "_";
+                                                                gen *= param.Name;
+                                                            }, ", ", "(", ")");
+                                                            gen *= " = conn.ReadMessage((br, _) =>";
+                                                        });
+                                                        gen.AddBlock(gen =>
+                                                        {
+                                                            foreach (var param in streamed_method.ReturnedValues)
+                                                                gen += $"var _{param.Name} = br.ReadData<{param.Type}>();";
+                                                            gen.AddLine(gen =>
+                                                            {
+                                                                gen *= "return ";
+                                                                gen.AddSeqWithBrackets(streamed_method.ReturnedValues, (gen, param) =>
+                                                                {
+                                                                    gen *= "_";
+                                                                    gen *= param.Name;
+                                                                }, ", ", "(", ")");
+                                                                gen *= ";";
+                                                            });
+                                                        }, "{", "});");
+                                                    }
+                                                    gen += $"var enumerable = new {nameof(RpcEnumerable<>)}<{streamed_method.StreamedItemType}>(conn, {streamed_method.ReadCancelTokenParameterName});";
+                                                    gen.AddLine(gen =>
+                                                    {
+                                                        if (streamed_method.ReturnType is not null)
+                                                            gen *= "return ";
+                                                        gen *= streamed_method.StreamCallbackParameter.Name;
+                                                        gen *= ".Invoke(";
+                                                        foreach (var param in streamed_method.ReturnedValues)
+                                                        {
+                                                            gen *= "_";
+                                                            gen *= param.Name;
+                                                            gen *= ", ";
+                                                        }
+                                                        gen *= "enumerable)";
+                                                        if (streamed_method.CallbackIsAsync)
+                                                            gen *= ".GetAwaiter().GetResult()";
+                                                        gen *= ";";
+                                                    });
+                                                }, "{", $"}}, tries_limit: {tries_limit_str}, ignore_when_canceled: {(streamed_method.BlockWhileStreaming ? "false" : "true")}, {streamed_method.ReadCancelTokenParameterName});");
+                                            }
+
+                                            if (streamed_method.BlockWhileStreaming)
+                                            {
+                                                GenConnectCall();
+                                            }
+                                            else
+                                            {
+                                                gen += $"var thr = new Thread(ThreadProc)";
+                                                gen.AddBlock(gen =>
                                                 {
                                                     gen.AddLine(gen =>
                                                     {
-                                                        gen *= "var ";
-                                                        gen.AddSeqWithBrackets(streamed_method.ReturnedValues, (gen, param) =>
+                                                        gen *= "Name = $\"";
+                                                        gen *= containing_type.Name;
+                                                        gen *= ".";
+                                                        gen *= streamed_method.Name;
+                                                        gen *= "(";
+                                                        gen.AddSeq(streamed_method.NonStreamedParameters, (gen, param) =>
                                                         {
+                                                            gen *= "{";
                                                             gen *= param.Name;
-                                                        }, ", ", "(", ")");
-                                                        gen *= " = conn.ReadMessage((br, _) =>";
+                                                            gen *= "}";
+                                                        }, ", ");
+                                                        gen *= ") processing thread\",";
                                                     });
-                                                    gen.AddBlock(gen =>
-                                                    {
-                                                        foreach (var param in streamed_method.ReturnedValues)
-                                                            gen += $"var {param.Name} = br.ReadData<{param.Type}>();";
-                                                        gen.AddLine(gen =>
-                                                        {
-                                                            gen *= "return ";
-                                                            gen.AddSeqWithBrackets(streamed_method.ReturnedValues, (gen, param) =>
-                                                            {
-                                                                gen *= param.Name;
-                                                            }, ", ", "(", ")");
-                                                            gen *= ";";
-                                                        });
-                                                    }, "{", "});");
-                                                }
-                                                gen += $"var enumerable = new {nameof(RpcEnumerable<>)}<{streamed_method.StreamedItemType}>(conn, {streamed_method.ReadCancelTokenParameterName});";
-                                                gen.AddLine(gen =>
+                                                    gen += $"IsBackground = false,";
+                                                }, "{", "};");
+                                                gen += $"thr.Start();";
+                                                gen += $"void ThreadProc() => Err.HandleDuring(() =>";
+                                                gen.AddBlock(gen =>
                                                 {
-                                                    gen *= streamed_method.StreamCallbackParameter.Name;
-                                                    gen *= ".Invoke(";
-                                                    foreach (var param in streamed_method.ReturnedValues)
-                                                    {
-                                                        gen *= param.Name;
-                                                        gen *= ", ";
-                                                    }
-                                                    gen *= "enumerable)";
-                                                    if (streamed_method.CallbackReturnsTask)
-                                                        gen *= ".GetAwaiter().GetResult()";
-                                                    gen *= ";";
-                                                });
-                                            }, "{", $"}}, tries_limit: {tries_limit_str}, ignore_when_canceled: true, {streamed_method.ReadCancelTokenParameterName}));");
+                                                    GenConnectCall();
+                                                }, "{", "});");
+                                            }
                                         });
                                         break;
                                     }
@@ -1430,12 +1517,14 @@ internal class CodeGenerator : IIncrementalGenerator
 
         public sealed class MethodStreamed : Method
         {
+            public required Boolean BlockWhileStreaming { get; init; }
             public required NameAndType[] NonStreamedParameters { get; init; }
             public required NameAndType StreamCallbackParameter { get; init; }
             public required String ReadCancelTokenParameterName { get; init; }
             public required NameAndType[] ReturnedValues { get; init; }
             public required String StreamedItemType { get; init; }
-            public required Boolean CallbackReturnsTask { get; init; }
+            public required Boolean CallbackIsAsync { get; init; }
+            public required String? ReturnType { get; init; }
         }
 
     }

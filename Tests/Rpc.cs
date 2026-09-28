@@ -52,7 +52,9 @@ public class Rpc
             OnMethodStreamed1: (_, _) =>
                 throw new InvalidOperationException("MethodStreamed1 should not be called here"),
             OnMethodStreamed2: (_) =>
-                throw new InvalidOperationException("MethodStreamed2 should not be called here")
+                throw new InvalidOperationException("MethodStreamed2 should not be called here"),
+            OnMethodStreamed3Blocking: (_, _) =>
+                throw new InvalidOperationException("MethodStreamed3Blocking should not be called here")
         );
         Assert.IsTrue(received_method1, $"Method1 did not fire");
         foreach (var ex in errors)
@@ -75,7 +77,9 @@ public class Rpc
             OnMethodStreamed1: (_, _) =>
                 throw new InvalidOperationException("MethodStreamed1 should not be called here"),
             OnMethodStreamed2: (_) =>
-                throw new InvalidOperationException("MethodStreamed2 should not be called here")
+                throw new InvalidOperationException("MethodStreamed2 should not be called here"),
+            OnMethodStreamed3Blocking: (_, _) =>
+                throw new InvalidOperationException("MethodStreamed3Blocking should not be called here")
         );
         Assert.IsTrue(received_method2, $"Method2 did not fire");
         foreach (var ex in errors)
@@ -85,10 +89,10 @@ public class Rpc
         {
             var len_existing = 10;
             var len = len_existing + 124;
-            var received = new List<Int32>();
             await TestMethod(
                 send: () =>
                 {
+                    var received = new List<Int32>();
                     var wh = new ManualResetEventSlim();
                     ExampleRpcApi.MethodStreamed1(len, async (stream) =>
                     {
@@ -115,13 +119,15 @@ public class Rpc
                         await Task.Delay(100);
                         for (; i < len; i++)
                             source.Push(i);
-                        source.Close();
+                        source.Close(error_message: null);
                     }, cancel_token);
                     received_method_streamed1 = true;
                     return source;
                 },
                 OnMethodStreamed2: (_) =>
-                    throw new InvalidOperationException("MethodStreamed2 should not be called here")
+                    throw new InvalidOperationException("MethodStreamed2 should not be called here"),
+            OnMethodStreamed3Blocking: (_, _) =>
+                throw new InvalidOperationException("MethodStreamed3Blocking should not be called here")
             );
         }
         Assert.IsTrue(received_method_streamed1, $"MethodStreamed1 did not fire");
@@ -132,11 +138,11 @@ public class Rpc
         {
             var len_existing = 10;
             var len = len_existing + 124;
-            var received_x = -1;
-            var received = new List<Int32>();
             await TestMethod(
                 send: () =>
                 {
+                    var received_x = -1;
+                    var received = new List<Int32>();
                     var wh = new ManualResetEventSlim();
                     ExampleRpcApi.MethodStreamed2(async (x, stream) =>
                     {
@@ -166,16 +172,61 @@ public class Rpc
                         await Task.Delay(100);
                         for (; i < len; i++)
                             source.Push(i);
-                        source.Close();
+                        source.Close(error_message: null);
                     }, cancel_token);
                     received_method_streamed2 = true;
                     return (len, source);
-                }
+                },
+                OnMethodStreamed3Blocking: (_, _) =>
+                    throw new InvalidOperationException("MethodStreamed3Blocking should not be called here")
             );
         }
         Assert.IsTrue(received_method_streamed2, $"MethodStreamed2 did not fire");
         foreach (var ex in errors)
             throw new Exception($"Error during testing of MethodStreamed2", ex);
+
+        {
+            var len_existing = 10;
+            var len = len_existing + 124;
+            await TestMethod(
+                send: () =>
+                {
+                    var received = new List<Int32>();
+                    var result = ExampleRpcApi.MethodStreamed3Blocking(len, async stream =>
+                    {
+                        await foreach (var item in stream.ReadItemsAsync())
+                            received.Add(item);
+                        return 789;
+                    }, read_cancel_token: default);
+                    Assert.AreEqual(789, result);
+                    Assert.IsTrue(received.SequenceEqual(Enumerable.Range(0, len)), "MethodStreamed3Blocking received sequence does not match expected");
+                },
+                OnMethod1: (x, _) =>
+                    throw new InvalidOperationException("Method1 should not be called here"),
+                OnMethod2: (_) =>
+                    throw new InvalidOperationException("Method2 should not be called here"),
+                OnMethodStreamed1: (_, _) =>
+                    throw new InvalidOperationException("MethodStreamed1 should not be called here"),
+                OnMethodStreamed2: (_) =>
+                    throw new InvalidOperationException("MethodStreamed2 should not be called here"),
+                OnMethodStreamed3Blocking: (input, cancel_token) =>
+                {
+                    Assert.AreEqual(len, input);
+                    var source = new RpcEnumerableSource<Int32>();
+                    var i = 0;
+                    for (; i < len_existing; i++)
+                        source.Push(i);
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(100);
+                        for (; i < len; i++)
+                            source.Push(i);
+                        source.Close(error_message: null);
+                    }, cancel_token);
+                    return source;
+                }
+            );
+        }
 
         await Assert.ThrowsExceptionAsync<ExampleRpcApi.ExpectedException>(() => TestMethod(
             send: () =>
@@ -193,10 +244,18 @@ public class Rpc
             OnMethodStreamed1: (_, _) =>
                 throw new InvalidOperationException("MethodStreamed1 should not be called here"),
             OnMethodStreamed2: (_) =>
-                throw new InvalidOperationException("MethodStreamed2 should not be called here")
+                throw new InvalidOperationException("MethodStreamed2 should not be called here"),
+            OnMethodStreamed3Blocking: (_, _) =>
+                throw new InvalidOperationException("MethodStreamed3Blocking should not be called here")
         ));
 
-        async Task TestMethod(Action send, ExampleRpcApi.ProcessClientConfig.Method1Handler OnMethod1, ExampleRpcApi.ProcessClientConfig.Method2Handler OnMethod2, ExampleRpcApi.ProcessClientConfig.MethodStreamed1Handler OnMethodStreamed1, ExampleRpcApi.ProcessClientConfig.MethodStreamed2Handler OnMethodStreamed2)
+        async Task TestMethod(Action send,
+            ExampleRpcApi.ProcessClientConfig.Method1Handler OnMethod1,
+            ExampleRpcApi.ProcessClientConfig.Method2Handler OnMethod2,
+            ExampleRpcApi.ProcessClientConfig.MethodStreamed1Handler OnMethodStreamed1,
+            ExampleRpcApi.ProcessClientConfig.MethodStreamed2Handler OnMethodStreamed2,
+            ExampleRpcApi.ProcessClientConfig.MethodStreamed3BlockingHandler OnMethodStreamed3Blocking
+        )
         {
             var send_task = Task.Run(send);
             var client_socket = listener.Accept();
@@ -208,6 +267,7 @@ public class Rpc
                 OnMethod2 = OnMethod2,
                 OnMethodStreamed1 = OnMethodStreamed1,
                 OnMethodStreamed2 = OnMethodStreamed2,
+                OnMethodStreamed3Blocking = OnMethodStreamed3Blocking,
                 OnMethod3ExpectedException = _ => throw new ExampleRpcApi.ExpectedException(),
             });
             await send_task;
@@ -230,6 +290,9 @@ internal static partial class ExampleRpcApi
 
     [RpcApi]
     public static partial void MethodStreamed2(Func<Int32, RpcEnumerable<Int32>, Task> on_connected, CancellationToken read_cancel_token);
+
+    [RpcApi(TriesLimit = 1, BlockWhileStreaming = true)]
+    public static partial Int32 MethodStreamed3Blocking(Int32 input, Func<RpcEnumerable<Int32>, Task<Int32>> on_connected, CancellationToken read_cancel_token);
 
     public sealed class ExpectedException : Exception;
     [RpcApi]

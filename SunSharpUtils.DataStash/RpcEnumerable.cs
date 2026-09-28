@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 
+using SunSharpUtils.Logs;
 using SunSharpUtils.UniversalBin;
 
 namespace SunSharpUtils.DataStash;
@@ -98,6 +99,9 @@ public sealed class RpcEnumerableSource<T>()
     private readonly List<T> existing_items = [];
     private Boolean is_closed = false;
 
+    // Cannot rely on this, because .Subscribe is called after exiting the client processing method
+    //public Boolean IsConnected => this.subscribers.Any(subscriber => subscriber.IsConnected);
+
     /// <summary>
     /// Adds an item and notifies all subscribers
     /// </summary>
@@ -114,13 +118,14 @@ public sealed class RpcEnumerableSource<T>()
     /// <summary>
     /// Closes the source and notifies all subscribers
     /// </summary>
-    public void Close()
+    /// <param name="error_message"></param>
+    public void Close(String? error_message)
     {
         using var lock_scope = this.l_subscribers_and_items.EnterScope();
         if (this.is_closed)
             throw new InvalidOperationException($"{this} is already closed");
         this.is_closed = true;
-        this.ForEachSubscriber(subscriber => subscriber.Close());
+        this.ForEachSubscriber(subscriber => subscriber.Close(error_message));
     }
 
     internal void ForEachSubscriber(Action<Subscriber> act)
@@ -128,7 +133,10 @@ public sealed class RpcEnumerableSource<T>()
         this.subscribers.RemoveWhere(subscriber =>
         {
             if (!subscriber.IsConnected)
+            {
+                subscriber.Dispose();
                 return true;
+            }
             try
             {
                 act.Invoke(subscriber);
@@ -152,6 +160,7 @@ public sealed class RpcEnumerableSource<T>()
         using var lock_scope = this.l_subscribers_and_items.EnterScope();
         var subscriber = new Subscriber(this, connection, this.existing_items);
         this.subscribers.Add(subscriber);
+        //GlobalLog.AddMessage($"Added new subscriber {subscriber} to {this}");
         return subscriber;
     }
 
@@ -190,8 +199,13 @@ public sealed class RpcEnumerableSource<T>()
             bw.WriteData(item);
         });
 
-        internal void Close()
+        internal void Close(String? error_message)
         {
+            if (error_message is { })
+            {
+                this.connection.ReportError(error_message);
+                return;
+            }
             this.connection.WriteMessage((bw, _) => bw.Write(false));
             this.connection.FinishWithoutError();
         }
@@ -200,9 +214,14 @@ public sealed class RpcEnumerableSource<T>()
         /// </summary>
         public void Dispose()
         {
-            this.source.subscribers.Remove(this);
+            //GlobalLog.AddMessage($"Disposing {this}\n{Environment.StackTrace}");
             this.connection.Dispose();
         }
+
+        /// <summary>
+        /// </summary>
+        public override String ToString() =>
+            $"{nameof(RpcEnumerableSource<>)}<{typeof(T).Name}>.{nameof(Subscriber)} => {this.connection}";
 
     }
 
