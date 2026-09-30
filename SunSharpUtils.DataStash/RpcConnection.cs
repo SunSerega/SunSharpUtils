@@ -42,6 +42,7 @@ public sealed class RpcConnection : IDisposable
         this.socket_bw = new BinaryWriter(this.stream);
         this.socket_br = new BinaryReader(this.stream);
         this.description = $"{nameof(RpcConnection)}[{this.socket.LocalEndPoint} => {this.socket.RemoteEndPoint}]({act_description})";
+        this.socket.LingerState = new(true, 10); // Try to send any remaining data for 10 seconds before closing the socket
     }
 
     /// <summary>
@@ -218,13 +219,16 @@ public sealed class RpcConnection : IDisposable
             {
                 bw.WriteNullableClass(error_message, (bw, error_message) => bw.Write(error_message));
             });
-            try
+            if (error_message is null)
             {
-                this.ReadAsync(on_finish: () => { }, on_message: (_, _) => throw new InvalidDataException($"{this}: Expected finish packet, but got message packet"), CancellationToken.None).GetAwaiter().GetResult();
-            }
-            catch (Exception ex) when (this.cancel_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
-            {
-                // Don't report this
+                try
+                {
+                    this.ReadAsync(on_finish: () => { }, on_message: (_, _) => throw new InvalidDataException($"{this}: Expected finish packet, but got message packet"), CancellationToken.None).GetAwaiter().GetResult();
+                }
+                catch (Exception ex) when (this.cancel_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
+                {
+                    // Don't report this
+                }
             }
         }
         finally

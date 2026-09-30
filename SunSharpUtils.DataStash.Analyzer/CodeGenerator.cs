@@ -465,6 +465,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                                             }, "{", "});");
                                                         }
                                                         gen += $"enumerable_source.Subscribe(connection);";
+                                                        gen += $"enumerable_source.RunOnClosed(connection.Dispose);";
                                                     }, "{", "}, config.CancelToken);");
                                                     gen += $"keep_connection_open = true;";
                                                     break;
@@ -1036,6 +1037,7 @@ internal class CodeGenerator : IIncrementalGenerator
                     gen += $"using System;";
                     gen += $"using System.IO;";
                     gen += $"using System.Linq;";
+                    gen += $"using System.Collections.Generic;";
                     gen += $"using System.Diagnostics.CodeAnalysis;";
                     gen += $"";
                     gen += $"using SunSharpUtils;";
@@ -1240,7 +1242,7 @@ internal class CodeGenerator : IIncrementalGenerator
                         {
                             gen += $"";
 
-                            gen += $"public void ApplyBlock(VersionInfo version, CommonTypedModelInfo common_info, ReadContext context)";
+                            gen += $"public void ApplyBlock(VersionInfo version, CommonTypedModelInfo common_info, ReadContext context, List<ITypedCloseableModel>? closable_models)";
                             gen.AddBlock(gen =>
                             {
                                 gen += $"switch (version.TypedContentVersion)";
@@ -1274,6 +1276,8 @@ internal class CodeGenerator : IIncrementalGenerator
                                                         gen += $"var file_data = context.ReadFileData<{file_data_type.ToDisplayString()}>();";
                                                         gen.AddLine(gen =>
                                                         {
+                                                            if (closable_typed_models.ContainsKey(model_type.Name))
+                                                                gen *= "var model = ";
                                                             gen *= "this.ReadBlock";
                                                             if (need_upgrade)
                                                                 gen *= "OldVersion";
@@ -1285,6 +1289,8 @@ internal class CodeGenerator : IIncrementalGenerator
                                                                 gen *= ", is_new: false";
                                                             gen *= ");";
                                                         });
+                                                        if (closable_typed_models.ContainsKey(model_type.Name))
+                                                            gen += $"closable_models?.Add(model);";
                                                         gen += $"break;";
                                                     });
                                                 }

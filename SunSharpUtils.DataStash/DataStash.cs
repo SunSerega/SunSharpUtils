@@ -346,8 +346,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
     private TTypedContent ReadSealedFileContent(String description, FileId file_id, FileStream fs)
     {
         var content = this.CreateEmptyTypedContent();
-        foreach (var (version, common_info, br) in this.ReadFileBlocks(description, fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), pending_file_read_info: null))
-            content.ApplyBlock(version, common_info, new(fs.Position, common_info.Location, br));
+        this.ReadAppendSealedFileContent(description, file_id, fs, content);
         return content;
     }
 
@@ -355,8 +354,17 @@ public abstract class DataStash<TDataStash, TTypedContent>
     {
         var file_path = Path.Combine(this.root_dir.FullName, $"{file_id}{file_ext}");
         using var fs = File.OpenRead(file_path);
-        foreach (var (version, common_info, br) in this.ReadFileBlocks($"{file_id}", fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), pending_file_read_info: null))
-            content.ApplyBlock(version, common_info, new(fs.Position, common_info.Location, br));
+        this.ReadAppendSealedFileContent($"{file_id}", file_id, fs, content);
+    }
+
+    private TTypedContent ReadAppendSealedFileContent(String description, FileId file_id, FileStream fs, TTypedContent content)
+    {
+        var closable_models = new List<ITypedCloseableModel>();
+        foreach (var (version, common_info, br) in this.ReadFileBlocks(description, fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), pending_file_read_info: null))
+            content.ApplyBlock(version, common_info, new(fs.Position, common_info.Location, br), closable_models);
+        foreach (var closable_model in closable_models)
+            closable_model.IsOpen = false;
+        return content;
     }
 
     private IEnumerable<(VersionInfo version, CommonTypedModelInfo common_info, BinaryReader block_br)> ReadFileBlocks<TLocation>(
@@ -683,6 +691,9 @@ public abstract class DataStash<TDataStash, TTypedContent>
         /// <summary>
         /// </summary>
         public void CloseContents();
+        /// <summary>
+        /// </summary>
+        public Boolean IsOpen { get; set; }
     }
 
     /// <summary>
@@ -696,7 +707,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
         /// <summary>
         /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
         /// </summary>
-        public abstract void ApplyBlock(VersionInfo version, CommonTypedModelInfo common_info, ReadContext context);
+        public abstract void ApplyBlock(VersionInfo version, CommonTypedModelInfo common_info, ReadContext context, List<ITypedCloseableModel>? closable_models);
 
         /// <summary>
         /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
@@ -1020,7 +1031,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                         var (version, common_info, block_br) = block_enumerators[ind].Current;
 
                         used_ids.Add(common_info.Location.BlockId);
-                        this.typed_content.ApplyBlock(version, common_info, new(files[ind].fs.Position, common_info.Location, block_br));
+                        this.typed_content.ApplyBlock(version, common_info, new(files[ind].fs.Position, common_info.Location, block_br), closable_models: null);
 
                         if (!block_enumerators[ind].MoveNext())
                             inds_with_next.Remove(ind);

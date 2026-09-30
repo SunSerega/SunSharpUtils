@@ -120,6 +120,8 @@ public sealed class RpcEnumerableSource<T>()
     private readonly HashSet<Subscriber> subscribers = [];
     private readonly List<T> existing_items = [];
     private Boolean is_closed = false;
+    private String? error_message = null;
+    private event Action? on_closed = null;
 
     // Cannot rely on this, because .Subscribe is called after exiting the client processing method
     //public Boolean IsConnected => this.subscribers.Any(subscriber => subscriber.IsConnected);
@@ -147,7 +149,22 @@ public sealed class RpcEnumerableSource<T>()
         if (this.is_closed)
             throw new InvalidOperationException($"{this} is already closed");
         this.is_closed = true;
+        this.error_message = error_message;
         this.ForEachSubscriber(subscriber => subscriber.Close(error_message));
+        this.on_closed?.Invoke();
+    }
+
+    /// <summary>
+    /// Either runs the given action immediately, or adds it as a handler for <see cref="Close(String?)"/> method
+    /// </summary>
+    /// <param name="act"></param>
+    public void RunOnClosed(Action act)
+    {
+        using var lock_scope = this.l_subscribers_and_items.EnterScope();
+        if (this.is_closed)
+            act.Invoke();
+        else
+            this.on_closed += act;
     }
 
     internal void ForEachSubscriber(Action<Subscriber> act)
@@ -181,8 +198,10 @@ public sealed class RpcEnumerableSource<T>()
     {
         using var lock_scope = this.l_subscribers_and_items.EnterScope();
         var subscriber = new Subscriber(this, connection, this.existing_items);
-        this.subscribers.Add(subscriber);
-        //GlobalLog.AddMessage($"Added new subscriber {subscriber} to {this}");
+        if (this.is_closed)
+            subscriber.Close(this.error_message);
+        else
+            this.subscribers.Add(subscriber);
         return subscriber;
     }
 
