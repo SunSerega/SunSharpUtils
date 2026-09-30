@@ -1,6 +1,7 @@
 ﻿using System;
 
 using System.Collections.Generic;
+using System.Linq;
 
 using SunSharpUtils.Ext.Math;
 
@@ -53,6 +54,26 @@ public static class LinqExt
 
     /// <summary>
     /// </summary>
+    public static T[] ToArrayWhere<T>(this ICollection<T> coll, Func<T, Boolean> predicate)
+    {
+        if (coll is T[] arr && coll.All(predicate))
+            return arr;
+        var res = new T[coll.Count];
+        var i = 0;
+        foreach (var item in coll)
+        {
+            if (predicate(item))
+                res[i++] = item;
+        }
+        if (i == 0)
+            return [];
+        if (i != res.Length)
+            Array.Resize(ref res, i);
+        return res;
+    }
+
+    /// <summary>
+    /// </summary>
     public static T2[] ToArray<T1, T2>(this IReadOnlyCollection<T1> coll, Converter<T1, T2> conv)
     {
         var res = new T2[coll.Count];
@@ -63,6 +84,28 @@ public static class LinqExt
             throw new ArgumentException($"Collection size changed {res.Length}=>{i} during conversion");
         if (i == 0)
             return [];
+        return res;
+    }
+
+    /// <summary>
+    /// </summary>
+    public delegate T2 ConditionalConverter<T1, T2>(T1 item, out Boolean success);
+    /// <summary>
+    /// </summary>
+    public static T2[] ToArray<T1, T2>(this IReadOnlyCollection<T1> coll, ConditionalConverter<T1, T2> conv)
+    {
+        var res = new T2[coll.Count];
+        var i = 0;
+        foreach (var item in coll)
+        {
+            var value = conv(item, out var success);
+            if (success)
+                res[i++] = value;
+        }
+        if (i == 0)
+            return [];
+        if (i != res.Length)
+            Array.Resize(ref res, i);
         return res;
     }
 

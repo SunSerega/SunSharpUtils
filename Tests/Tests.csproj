@@ -11,6 +11,7 @@
 	</ItemGroup>
     
     <ItemGroup>
+        <ProjectReference Include="..\SunSharpUtils.DependentComputations\SunSharpUtils.DependentComputations.csproj" />
         <ProjectReference Include="..\SunSharpUtils.UniversalBin\SunSharpUtils.UniversalBin.csproj" />
         <ProjectReference Include="..\SunSharpUtils.DataStash\SunSharpUtils.DataStash.csproj" />
     </ItemGroup>

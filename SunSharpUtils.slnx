@@ -14,6 +14,7 @@
         <Project Path="SunSharpUtils.Ext/SunSharpUtils.Ext.csproj" />
     </Folder>
     <Folder Name="/3 Common/">
+        <Project Path="SunSharpUtils.DependentComputations/SunSharpUtils.DependentComputations.csproj" Id="ab01e413-8fba-413d-93d6-b8e89e91413c" />
         <Project Path="SunSharpUtils.Logs/SunSharpUtils.Logs.csproj" />
         <Project Path="SunSharpUtils.Settings/SunSharpUtils.Settings.csproj" />
         <Project Path="SunSharpUtils.Threading/SunSharpUtils.Threading.csproj" />
