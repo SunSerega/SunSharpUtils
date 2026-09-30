@@ -54,7 +54,7 @@ public sealed class RpcClientConnector(String target_description)
 
     /// <summary>
     /// </summary>
-    public void Connect(Action<RpcConnection, CancellationToken> act, Int32? tries_limit, Boolean ignore_when_canceled, CancellationToken extra_cancel_token)
+    public void Connect(Action<RpcConnection, CancellationToken> act, String act_description, Int32? tries_limit, Boolean ignore_when_canceled, CancellationToken extra_cancel_token)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(this.ConfigOrThrow.CancelToken, extra_cancel_token);
         var cancel_token = cts.Token;
@@ -67,7 +67,7 @@ public sealed class RpcClientConnector(String target_description)
             try
             {
                 using var socket = this.ConnectNewSocket();
-                using var connection = new RpcConnection(socket, cancel_token);
+                using var connection = new RpcConnection(socket, act_description, cancel_token);
                 act.Invoke(connection, cancel_token);
                 break;
             }
@@ -101,13 +101,13 @@ public sealed class RpcClientConnector(String target_description)
     }
     /// <summary>
     /// </summary>
-    public T Connect<T>(Func<RpcConnection, CancellationToken, T> act, Int32? tries_limit, Boolean ignore_when_canceled, CancellationToken extra_cancel_token)
+    public T Connect<T>(Func<RpcConnection, CancellationToken, T> act, String act_description, Int32? tries_limit, Boolean ignore_when_canceled, CancellationToken extra_cancel_token)
     {
         var result = default(ValueTuple<T>?);
         this.Connect((conn, token) =>
         {
             result = new(act.Invoke(conn, token));
-        }, tries_limit, ignore_when_canceled, extra_cancel_token);
+        }, act_description, tries_limit, ignore_when_canceled, extra_cancel_token);
         return (result ?? throw null!).Item1;
     }
 

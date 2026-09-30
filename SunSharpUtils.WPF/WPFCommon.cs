@@ -56,6 +56,13 @@ public static class WPFCommon
             Err.Handle((Exception)e.ExceptionObject);
         };
 
+        config.App.DispatcherUnhandledException += (s, e) =>
+        {
+            if (e.Handled) return;
+            Err.Handle(e.Exception);
+            e.Handled = true;
+        };
+
         Common.OnShutdown += exit_code =>
             CurrentApp?.Dispatcher.Invoke(() => CurrentApp.Shutdown(exit_code));
         config.App.SessionEnding += (o, e) =>

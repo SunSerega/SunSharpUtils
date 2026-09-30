@@ -34,14 +34,14 @@ public sealed class RpcConnection : IDisposable
 
     /// <summary>
     /// </summary>
-    public RpcConnection(Socket socket, CancellationToken cancel_token)
+    public RpcConnection(Socket socket, String act_description, CancellationToken cancel_token)
     {
         this.socket = socket;
         this.cancel_token = cancel_token;
         this.stream = new NetworkStream(socket);
         this.socket_bw = new BinaryWriter(this.stream);
         this.socket_br = new BinaryReader(this.stream);
-        this.description = $"{nameof(RpcConnection)}({this.socket.RemoteEndPoint} => {this.socket.LocalEndPoint})";
+        this.description = $"{nameof(RpcConnection)}[{this.socket.LocalEndPoint} => {this.socket.RemoteEndPoint}]({act_description})";
     }
 
     /// <summary>
@@ -62,13 +62,27 @@ public sealed class RpcConnection : IDisposable
         }
         catch (Exception ex)
         {
-            this.had_error = true;
             if (this.IsConnected)
             {
-                if (!this.cancel_token.IsCancellationRequested && !extra_cancel_token.IsCancellationRequested || !ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
+                Boolean ShouldReportError()
+                {
+                    if (this.cancel_token.IsCancellationRequested || extra_cancel_token.IsCancellationRequested)
+                    {
+                        if (ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
+                            return false;
+                    }
+
+                    if (ex is RpcConnectionReturnedErrorException)
+                        return false;
+
+                    return true;
+                }
+
+                if (ShouldReportError())
                     Err.Handle(ex);
             }
-            Err.HandleDuring(() => this.ReportError(error_message: ex.ToString()));
+            Err.HandleDuring(() => this.ReportError(error_message: $"{ex}\n--- End of stack trace from remote {this} ---"));
+            this.had_error = true;
             throw;
         }
     }
@@ -153,8 +167,16 @@ public sealed class RpcConnection : IDisposable
         try
         {
             var kind_bytes = new Byte[sizeof(EPacketKind)];
-            using (var linked_cts = CancellationTokenSource.CreateLinkedTokenSource(this.cancel_token, read_cancel_token))
+            try
+            {
+                using var linked_cts = CancellationTokenSource.CreateLinkedTokenSource(this.cancel_token, read_cancel_token);
                 await this.stream.ReadExactlyAsync(new Memory<Byte>(kind_bytes), linked_cts.Token);
+            }
+            catch (EndOfStreamException)
+            {
+                this.cancel_token.ThrowIfCancellationRequested();
+                throw new EndOfStreamException($"{this}: Stream ended unexpectedly");
+            }
             var kind = (EPacketKind)kind_bytes.Single();
             switch (kind)
             {
@@ -196,8 +218,14 @@ public sealed class RpcConnection : IDisposable
             {
                 bw.WriteNullableClass(error_message, (bw, error_message) => bw.Write(error_message));
             });
-            if (!this.cancel_token.IsCancellationRequested)
+            try
+            {
                 this.ReadAsync(on_finish: () => { }, on_message: (_, _) => throw new InvalidDataException($"{this}: Expected finish packet, but got message packet"), CancellationToken.None).GetAwaiter().GetResult();
+            }
+            catch (Exception ex) when (this.cancel_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
+            {
+                // Don't report this
+            }
         }
         finally
         {

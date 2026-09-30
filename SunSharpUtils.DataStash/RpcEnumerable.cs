@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 
-using SunSharpUtils.Logs;
 using SunSharpUtils.UniversalBin;
 
 namespace SunSharpUtils.DataStash;
@@ -18,22 +17,45 @@ namespace SunSharpUtils.DataStash;
 /// Represents a stream of values continuously received through RPC
 /// </summary>
 /// <typeparam name="T"></typeparam>
-/// <remarks>
-/// </remarks>
-public sealed class RpcEnumerable<T>(RpcConnection connection, CancellationToken read_cancel_token) : IDisposable
+public sealed class RpcEnumerable<T> : IDisposable
     where T : notnull
 {
-    private readonly RpcConnection connection = connection;
-    private readonly CancellationToken read_cancel_token = read_cancel_token;
-    private readonly Queue<T> existing_values_left = connection.ReadMessage((br, _) =>
-    {
-        var count = br.ReadInt32();
-        var queue = new Queue<T>(count);
-        for (var i = 0; i < count; i++)
-            queue.Enqueue(br.ReadData<T>());
-        return queue;
-    });
+    private readonly RpcConnection connection;
+    private readonly CancellationToken read_cancel_token;
+    private readonly Queue<T> existing_values_left;
     private Boolean is_finished = false;
+
+    /// <summary>
+    /// </summary>
+    public RpcEnumerable(RpcConnection connection, CancellationToken read_cancel_token)
+    {
+        this.connection = connection;
+        this.read_cancel_token = read_cancel_token;
+        this.existing_values_left = connection.ReadMessage((br, _) =>
+        {
+            var count = br.ReadInt32();
+            var queue = new Queue<T>(count);
+            for (var i = 0; i < count; i++)
+                queue.Enqueue(br.ReadData<T>());
+            return queue;
+        });
+    }
+
+    /// <summary>
+    /// </summary>
+    private RpcEnumerable(T[] existing_values)
+    {
+        this.connection = null!;
+        this.read_cancel_token = default;
+        this.existing_values_left = new(existing_values);
+        this.is_finished = true;
+    }
+    /// <summary>
+    /// Creates a dummy RpcEnumerable that only contains the given existing values and does not read from any connection
+    /// </summary>
+    /// <param name="existing_values"></param>
+    /// <returns></returns>
+    public static RpcEnumerable<T> CreateDummy(T[] existing_values) => new(existing_values);
 
     /// <summary>
     /// Number of unread values that already existed when establishing connection
@@ -51,7 +73,7 @@ public sealed class RpcEnumerable<T>(RpcConnection connection, CancellationToken
     public async IAsyncEnumerable<T> ReadItemsAsync(Boolean only_existing = false)
     {
 
-        while (!this.is_finished && this.existing_values_left.TryDequeue(out var existing_value))
+        while (this.existing_values_left.TryDequeue(out var existing_value))
             yield return existing_value;
 
         if (only_existing)

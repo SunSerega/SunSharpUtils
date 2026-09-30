@@ -351,7 +351,7 @@ internal class CodeGenerator : IIncrementalGenerator
                             gen += $"public static void ProcessClient(ProcessClientConfig config)";
                             gen.AddBlock(gen =>
                             {
-                                gen += $"var connection = new RpcConnection(config.Socket, config.CancelToken);";
+                                gen += $"var connection = new RpcConnection(config.Socket, \"{containing_type.Name}.ProcessClient\", config.CancelToken);";
                                 gen += $"var cts = CancellationTokenSource.CreateLinkedTokenSource(config.CancelToken);";
                                 gen += $"connection.OnFinished += cts.Cancel;";
                                 gen += $"var keep_connection_open = false;";
@@ -524,7 +524,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                             }
                                             if (one_off_method.ReturnType is { } ret_type)
                                                 gen += $"return conn.ReadMessage((br, _) => br.ReadData<{ret_type}>());";
-                                        }, "{", $"}}, tries_limit: {tries_limit_str}, ignore_when_canceled: false, extra_cancel_token: default);");
+                                        }, "{", $"}}, \"{containing_type.Name}.{one_off_method.Name}\", tries_limit: {tries_limit_str}, ignore_when_canceled: false, extra_cancel_token: default);");
                                         break;
                                     }
                                     case RpcApi.MethodStreamed streamed_method:
@@ -619,7 +619,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                                             gen *= ".GetAwaiter().GetResult()";
                                                         gen *= ";";
                                                     });
-                                                }, "{", $"}}, tries_limit: {tries_limit_str}, ignore_when_canceled: {(streamed_method.BlockWhileStreaming ? "false" : "true")}, {streamed_method.ReadCancelTokenParameterName});");
+                                                }, "{", $"}}, \"{containing_type.Name}.{streamed_method.Name}\", tries_limit: {tries_limit_str}, ignore_when_canceled: {(streamed_method.BlockWhileStreaming ? "false" : "true")}, {streamed_method.ReadCancelTokenParameterName});");
                                             }
 
                                             if (streamed_method.BlockWhileStreaming)

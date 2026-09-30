@@ -79,8 +79,18 @@ public static class Err
     /// <param name="exception"></param>
     /// <param name="filter"></param>
     /// <returns></returns>
-    public static Boolean TryCatch<T>(Func<T> body, [MaybeNullWhen(false)] out T result, [NotNullWhen(false)] out Exception? exception, Predicate<Exception>? filter = null) where T : notnull =>
+    public static Boolean TryCatch<T>(Func<T> body, [MaybeNullWhen(false)] out T result, [NotNullWhen(false)] out Exception? exception, Predicate<Exception>? filter = null) =>
         Err<Exception>.TryCatch(body, out result, out exception, filter);
+
+    /// <summary>
+    /// Tries to execute the body function and catches any exception
+    /// </summary>
+    /// <param name="body"></param>
+    /// <param name="exception"></param>
+    /// <param name="filter"></param>
+    /// <returns></returns>
+    public static Boolean TryCatch(Action body, [NotNullWhen(false)] out Exception? exception, Predicate<Exception>? filter = null) =>
+        Err<Exception>.TryCatch(body, out exception, filter);
 
 }
 
@@ -104,13 +114,35 @@ public static class Err<TException>
     {
         try
         {
-            result = body();
+            result = body.Invoke();
             exception = default;
             return true;
         }
         catch (TException e) when (filter?.Invoke(e) ?? true)
         {
             result = default;
+            exception = e;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Tries to execute the body function and catches a specific exception type
+    /// </summary>
+    /// <param name="body"></param>
+    /// <param name="exception"></param>
+    /// <param name="filter"></param>
+    /// <returns></returns>
+    public static Boolean TryCatch(Action body, [NotNullWhen(false)] out TException? exception, Predicate<TException>? filter = null)
+    {
+        try
+        {
+            body.Invoke();
+            exception = default;
+            return true;
+        }
+        catch (TException e) when (filter?.Invoke(e) ?? true)
+        {
             exception = e;
             return false;
         }
