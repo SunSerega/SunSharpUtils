@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 namespace SunSharpUtils.Ext.Exceptions;
 
@@ -10,7 +11,7 @@ public static class ExceptionExt
 {
 
     /// <summary>
-    /// Enumerates all inner exceptions of AggregateException recursively (excluding all AggregateException)
+    /// Enumerates all inner exceptions of AggregateException recursively (excluding all AggregateException-s themselves)
     /// </summary>
     /// <param name="root_ex"></param>
     /// <returns></returns>
@@ -21,5 +22,15 @@ public static class ExceptionExt
         else
             return [root_ex];
     }
+
+    /// <summary>
+    /// </summary>
+    public static Boolean AreAllNestedExceptionsOfType<TException>(this Exception root_ex)
+        where TException : Exception => root_ex.GetNestedExceptions().All(ex => ex is TException);
+
+    /// <summary>
+    /// </summary>
+    public static Boolean IsOnlyNestedOpCanceledExceptions(this Exception root_ex, CancellationToken cancel_token) =>
+        cancel_token.IsCancellationRequested && root_ex.AreAllNestedExceptionsOfType<OperationCanceledException>();
 
 }

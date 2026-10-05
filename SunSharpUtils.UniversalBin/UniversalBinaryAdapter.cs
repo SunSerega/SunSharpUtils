@@ -28,11 +28,11 @@ namespace SunSharpUtils.UniversalBin;
 /// Marks a type for automatic serialization in <see cref="UniversalBinaryAdapter"/>
 /// </summary>
 [AttributeUsage(AttributeTargets.Struct | AttributeTargets.Class | AttributeTargets.Interface, AllowMultiple = false, Inherited = false)]
-public sealed class AutoSerializedDataAttribute(Boolean AllowEmpty = false) : Attribute
+public sealed class AutoSerializedDataAttribute : Attribute
 {
     /// <summary>
     /// </summary>
-    public Boolean AllowEmpty { get; init; } = AllowEmpty;
+    public Boolean AllowEmpty { get; init; } = false;
 }
 
 /// <summary>

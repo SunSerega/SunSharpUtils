@@ -34,7 +34,20 @@ public static class ExpressionInvokeHelper<TInp1, TInp2>
     public static InvocationExpression Wrap<TRes>(Expression<Func<TInp1, TInp2, TRes>> e_func, Expression e_arg1, Expression e_arg2) => Expression.Invoke(e_func, e_arg1, e_arg2);
 }
 
-//public static class ExpressionsExt
-//{
+/// <inheritdoc cref="ExpressionInvokeHelper"/>
+public static class ExpressionInvokeHelper<TInp1, TInp2, TInp3>
+{
+    /// <inheritdoc cref="ExpressionInvokeHelper.Wrap(Expression{Action})"/>
+    public static InvocationExpression Wrap(Expression<Action<TInp1, TInp2, TInp3>> e_func, Expression e_arg1, Expression e_arg2, Expression e_arg3) => Expression.Invoke(e_func, e_arg1, e_arg2, e_arg3);
+    /// <inheritdoc cref="ExpressionInvokeHelper.Wrap{TRes}(Expression{Func{TRes}})"/>
+    public static InvocationExpression Wrap<TRes>(Expression<Func<TInp1, TInp2, TInp3, TRes>> e_func, Expression e_arg1, Expression e_arg2, Expression e_arg3) => Expression.Invoke(e_func, e_arg1, e_arg2, e_arg3);
+}
 
-//}
+/// <inheritdoc cref="ExpressionInvokeHelper"/>
+public static class ExpressionInvokeHelper<TInp1, TInp2, TInp3, TInp4>
+{
+    /// <inheritdoc cref="ExpressionInvokeHelper.Wrap(Expression{Action})"/>
+    public static InvocationExpression Wrap(Expression<Action<TInp1, TInp2, TInp3, TInp4>> e_func, Expression e_arg1, Expression e_arg2, Expression e_arg3, Expression e_arg4) => Expression.Invoke(e_func, e_arg1, e_arg2, e_arg3, e_arg4);
+    /// <inheritdoc cref="ExpressionInvokeHelper.Wrap{TRes}(Expression{Func{TRes}})"/>
+    public static InvocationExpression Wrap<TRes>(Expression<Func<TInp1, TInp2, TInp3, TInp4, TRes>> e_func, Expression e_arg1, Expression e_arg2, Expression e_arg3, Expression e_arg4) => Expression.Invoke(e_func, e_arg1, e_arg2, e_arg3, e_arg4);
+}

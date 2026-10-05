@@ -359,9 +359,10 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
     private TTypedContent ReadAppendSealedFileContent(String description, FileId file_id, FileStream fs, TTypedContent content)
     {
+        var apply_block_context = new ApplyBlockContext(description, id => new SealedBlockLocation(file_id, id));
         var closable_models = new List<ITypedCloseableModel>();
         foreach (var (version, common_info, br) in this.ReadFileBlocks(description, fs, trim_corrupted: false, location_factory: id => new SealedBlockLocation(file_id, id), pending_file_read_info: null))
-            content.ApplyBlock(version, common_info, new(fs.Position, common_info.Location, br), closable_models);
+            apply_block_context.ApplyBlock(content, version, common_info, new(fs.Position, common_info.Location, br), closable_models);
         foreach (var closable_model in closable_models)
             closable_model.IsOpen = false;
         return content;
@@ -617,6 +618,57 @@ public abstract class DataStash<TDataStash, TTypedContent>
         public required BlockLocation Location { get; init; }
     }
 
+    /// <summary>
+    /// </summary>
+    public sealed class ApplyBlockContext
+    {
+        private readonly String description;
+        private readonly Func<BlockId, BlockLocation> upgrade_location_factory;
+        private readonly HashSet<BlockId> seen_ids = [];
+        private BlockId next_block_id_for_upgrade = BlockId.MaxValue;
+
+        internal ApplyBlockContext(String description, Func<BlockId, BlockLocation> upgrade_location_factory)
+        {
+            this.description = description;
+            this.upgrade_location_factory = upgrade_location_factory;
+        }
+
+        internal void ApplyBlock(TTypedContent typed_content, VersionInfo version, CommonTypedModelInfo common_info, ReadContext read_context, List<ITypedCloseableModel>? closable_models)
+        {
+            this.AddBlockId(common_info.Location.BlockId);
+            typed_content.ApplyBlock(version, common_info, this, read_context, closable_models);
+        }
+
+        /// <summary>
+        /// </summary>
+        public CommonTypedModelInfo AllocateNewCommonInfoForUpgrade(DateTime record_time_utc)
+        {
+            var id = this.next_block_id_for_upgrade;
+            this.AddBlockId(id);
+            this.next_block_id_for_upgrade -= new IdOffsetOfOne();
+            return new()
+            {
+                Location = this.upgrade_location_factory.Invoke(id),
+                RecordTimeUtc = record_time_utc,
+            };
+        }
+
+        /// <summary>
+        /// </summary>
+        public CommonTypedModelInfo AllocateNewCommonInfoForUpgrade(CommonTypedModelInfo parent_info) =>
+            this.AllocateNewCommonInfoForUpgrade(parent_info.RecordTimeUtc);
+
+        private void AddBlockId(BlockId id)
+        {
+            if (!this.seen_ids.Add(id))
+                throw new InvalidOperationException($"{this.description} is corrupted: Block ID {id} was seen twice");
+        }
+
+        internal Int32 SeenIdsCount => this.seen_ids.Count;
+        internal IEnumerable<BlockId> GetAllSeenIds() => this.seen_ids;
+
+    }
+
     #region ITypedContent
 
     /// <summary>
@@ -707,7 +759,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
         /// <summary>
         /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
         /// </summary>
-        public abstract void ApplyBlock(VersionInfo version, CommonTypedModelInfo common_info, ReadContext context, List<ITypedCloseableModel>? closable_models);
+        public abstract void ApplyBlock(VersionInfo version, CommonTypedModelInfo common_info, ApplyBlockContext apply_block_context, ReadContext read_context, List<ITypedCloseableModel>? closable_models);
 
         /// <summary>
         /// Should be implemented by code-generation with <see cref="AutoDataStashAttribute"/>
@@ -876,10 +928,11 @@ public abstract class DataStash<TDataStash, TTypedContent>
         /// <summary>
         /// Adds block's content from file to this instance
         /// </summary>
+        /// <param name="apply_block_context"></param>
         /// <param name="common_info"></param>
         /// <param name="parent"></param>
         /// <param name="content"></param>
-        public void ReadBlockOldVersion(CommonTypedModelInfo common_info, TOldParentModel parent, TOldFileData content);
+        public void ReadBlockOldVersion(ApplyBlockContext apply_block_context, CommonTypedModelInfo common_info, TOldParentModel parent, TOldFileData content);
     }
 
     #endregion
@@ -979,7 +1032,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
             this.write_cts = CancellationTokenSource.CreateLinkedTokenSource(svc_stop_token);
             this.typed_content = data_stash.CreateEmptyTypedContent();
 
-            var used_ids = new List<BlockId>();
+            var apply_block_context = new ApplyBlockContext($"Pending state {this.id}", upgrade_location_factory: id => new PendingBlockLocation(this, 0, id));
             if (this.file_count != 0)
             {
                 if (!expect_existing_content)
@@ -1025,13 +1078,14 @@ public abstract class DataStash<TDataStash, TTypedContent>
                     });
                     var inds_with_next = Enumerable.Range(0, this.file_count).Where(ind => block_enumerators[ind].MoveNext()).ToList();
 
+                    var next_upgraded_block_id = BlockId.MaxValue;
                     while (inds_with_next.Count != 0)
                     {
                         var ind = inds_with_next.MinBy(ind => block_enumerators[ind].Current.common_info.RecordTimeUtc);
                         var (version, common_info, block_br) = block_enumerators[ind].Current;
 
-                        used_ids.Add(common_info.Location.BlockId);
-                        this.typed_content.ApplyBlock(version, common_info, new(files[ind].fs.Position, common_info.Location, block_br), closable_models: null);
+                        var read_context = new ReadContext(files[ind].fs.Position, common_info.Location, block_br);
+                        apply_block_context.ApplyBlock(this.typed_content, version, common_info, read_context, closable_models: null);
 
                         if (!block_enumerators[ind].MoveNext())
                             inds_with_next.Remove(ind);
@@ -1047,10 +1101,10 @@ public abstract class DataStash<TDataStash, TTypedContent>
                 for (var ind = 0; ind < this.file_count; ++ind)
                     this.EnsureWriterInitialized(ind);
 
-                Prompt.Notify($"Loaded pending state {this.id} from {used_ids.Count} blocks");
+                Prompt.Notify($"Loaded pending state {this.id} from {apply_block_context.SeenIdsCount} blocks");
             }
 
-            this.block_id_allocator = new(used_ids);
+            this.block_id_allocator = new(apply_block_context.GetAllSeenIds());
         }
 
         public FileId Id => this.id;
@@ -1528,7 +1582,11 @@ public abstract class DataStash<TDataStash, TTypedContent>
                                         // Can't throw out of .RemoveAll, it leaves inconsistent state
                                         Err.Handle($"{this.data_stash}: Failed to remove pending state file {file_id}");
 
-                                    this.data_stash.all_sealed_state_files.Add(file_id);
+                                    var insert_ind = 0;
+                                    while (insert_ind < this.data_stash.all_sealed_state_files.Count && this.data_stash.all_sealed_state_files[insert_ind].CompareTo(file_id) < 0)
+                                        insert_ind += 1;
+                                    this.data_stash.all_sealed_state_files.Insert(insert_ind, file_id);
+
                                     // New sealed file has been added, need to reset consolidation schedule
                                     this.data_stash.TriggerSealedConsolidator();
 
@@ -1552,7 +1610,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                         }
 
                     }
-                    catch (Exception ex) when (svc_stop_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
+                    catch (Exception ex) when (ex.IsOnlyNestedOpCanceledExceptions(svc_stop_token))
                     {
                         break;
                     }
@@ -1665,7 +1723,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                         }, with_priority: false);
                         Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Done consolidating {id_merge} => {id_keep}");
                     }
-                    catch (Exception ex) when (svc_stop_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
+                    catch (Exception ex) when (ex.IsOnlyNestedOpCanceledExceptions(svc_stop_token))
                     {
                         break;
                     }

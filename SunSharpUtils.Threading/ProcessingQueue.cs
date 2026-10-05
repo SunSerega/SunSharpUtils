@@ -131,7 +131,7 @@ public sealed class ProcessingQueue<T>() : IEnumerable<T>
 
                     on_new_items.Invoke(this.DequeueAll());
                 }
-                catch (Exception ex) when (cancel_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
+                catch (Exception ex) when (ex.IsOnlyNestedOpCanceledExceptions(cancel_token))
                 {
                     continue; // Try process remaining items
                 }

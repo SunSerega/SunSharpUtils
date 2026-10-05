@@ -1,4 +1,4 @@
-﻿namespace SunAssistant.Core;
+﻿namespace SunSharpUtils;
 
 /// <summary>
 /// </summary>

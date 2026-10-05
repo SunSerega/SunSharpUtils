@@ -1242,7 +1242,7 @@ internal class CodeGenerator : IIncrementalGenerator
                         {
                             gen += $"";
 
-                            gen += $"public void ApplyBlock(VersionInfo version, CommonTypedModelInfo common_info, ReadContext context, List<ITypedCloseableModel>? closable_models)";
+                            gen += $"public void ApplyBlock(VersionInfo version, CommonTypedModelInfo common_info, ApplyBlockContext apply_block_context, ReadContext read_context, List<ITypedCloseableModel>? closable_models)";
                             gen.AddBlock(gen =>
                             {
                                 gen += $"switch (version.TypedContentVersion)";
@@ -1255,7 +1255,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                         gen += $"case {version}:";
                                         gen.AddBlock(gen =>
                                         {
-                                            gen += $"var command = context.ReadCommand<{block_kind_enum_name}>();";
+                                            gen += $"var command = read_context.ReadCommand<{block_kind_enum_name}>();";
                                             gen += $"switch (command)";
                                             gen.AddBlock(gen =>
                                             {
@@ -1266,14 +1266,14 @@ internal class CodeGenerator : IIncrementalGenerator
                                                     {
                                                         if (parent_model_type is not null)
                                                         {
-                                                            gen += $"var parent_location = context.ReadParentLocation();";
+                                                            gen += $"var parent_location = read_context.ReadParentLocation();";
                                                             gen += $"if (!this.TryGetModelByLocation(parent_location, out {parent_model_type.Name}? parent))";
                                                             gen.AddTab(gen =>
                                                             {
-                                                                gen += $"throw new InvalidOperationException($\"{{context.Description}}: Parent {parent_model_type.Name} not found at {{parent_location}} when reading child {model_type.Name} at {{common_info.Location}}\");";
+                                                                gen += $"throw new InvalidOperationException($\"{{read_context.Description}}: Parent {parent_model_type.Name} not found at {{parent_location}} when reading child {model_type.Name} at {{common_info.Location}}\");";
                                                             });
                                                         }
-                                                        gen += $"var file_data = context.ReadFileData<{file_data_type.ToDisplayString()}>();";
+                                                        gen += $"var file_data = read_context.ReadFileData<{file_data_type.ToDisplayString()}>();";
                                                         gen.AddLine(gen =>
                                                         {
                                                             if (closable_typed_models.ContainsKey(model_type.Name))
@@ -1281,7 +1281,10 @@ internal class CodeGenerator : IIncrementalGenerator
                                                             gen *= "this.ReadBlock";
                                                             if (need_upgrade)
                                                                 gen *= "OldVersion";
-                                                            gen *= "(common_info, ";
+                                                            gen *= "(";
+                                                            if (need_upgrade)
+                                                                gen *= "apply_block_context, ";
+                                                            gen *= "common_info, ";
                                                             if (parent_model_type is not null)
                                                                 gen *= "parent, ";
                                                             gen *= "file_data";
@@ -1297,7 +1300,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                                 gen += $"default:";
                                                 gen.AddTab(gen =>
                                                 {
-                                                    gen += $"throw new InvalidDataException($\"{{context.Description}}: Invalid block kind for content version {version}: {{command}}\");";
+                                                    gen += $"throw new InvalidDataException($\"{{read_context.Description}}: Invalid block kind for content version {version}: {{command}}\");";
                                                 });
                                             });
                                             gen += $"break;";
@@ -1326,7 +1329,7 @@ internal class CodeGenerator : IIncrementalGenerator
                                     gen += $"default:";
                                     gen.AddTab(gen =>
                                     {
-                                        gen += $"throw new InvalidDataException($\"{{context.Description}}: Invalid content version: {{version.TypedContentVersion}}\");";
+                                        gen += $"throw new InvalidDataException($\"{{read_context.Description}}: Invalid content version: {{version.TypedContentVersion}}\");";
                                     });
                                 });
 

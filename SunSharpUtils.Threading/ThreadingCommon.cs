@@ -36,9 +36,16 @@ public static class ThreadingCommon
     /// <returns>A disposable that resets the thread's IsBackground property to its original value</returns>
     public static IDisposable TempSetIsBackground(Boolean new_is_background)
     {
-        var old_is_background = Thread.CurrentThread.IsBackground;
-        Thread.CurrentThread.IsBackground = new_is_background;
-        return new LambdaDisposable(() => Thread.CurrentThread.IsBackground = old_is_background);
+        var old_thread = Thread.CurrentThread;
+        var old_is_background = old_thread.IsBackground;
+        old_thread.IsBackground = new_is_background;
+        return new LambdaDisposable(() =>
+        {
+            if (old_thread != Thread.CurrentThread)
+                Err.Handle($"{nameof(ThreadingCommon)}.{nameof(TempSetIsBackground)}: Thread.CurrentThread changed before .Dispose, the thread's IsBackground will not be restored\n{Environment.StackTrace}");
+            else
+                old_thread.IsBackground = old_is_background;
+        }, prevent_double_call: true);
     }
 
     /// <summary>
@@ -48,9 +55,16 @@ public static class ThreadingCommon
     /// <returns>A disposable that resets the thread's Name property to its original value</returns>
     public static IDisposable TempSetName(String new_name)
     {
-        var old_name = Thread.CurrentThread.Name;
-        Thread.CurrentThread.Name = new_name;
-        return new LambdaDisposable(() => Thread.CurrentThread.Name = old_name);
+        var old_thread = Thread.CurrentThread;
+        var old_name = old_thread.Name;
+        old_thread.Name = new_name;
+        return new LambdaDisposable(() =>
+        {
+            if (old_thread != Thread.CurrentThread)
+                Err.Handle($"{nameof(ThreadingCommon)}.{nameof(TempSetName)}: Thread.CurrentThread changed before .Dispose, the thread's Name will not be restored\n{Environment.StackTrace}");
+            else
+                old_thread.Name = old_name;
+        }, prevent_double_call: true);
     }
 
     /// <summary>

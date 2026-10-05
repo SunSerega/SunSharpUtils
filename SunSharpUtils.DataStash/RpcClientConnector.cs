@@ -71,7 +71,7 @@ public sealed class RpcClientConnector(String target_description)
                 connection.ReportErrorsWhile(() => act.Invoke(connection, cancel_token), extra_cancel_token: default);
                 break;
             }
-            catch (Exception ex) when (cancel_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
+            catch (Exception ex) when (ex.IsOnlyNestedOpCanceledExceptions(cancel_token))
             {
                 if (ignore_when_canceled)
                     break;

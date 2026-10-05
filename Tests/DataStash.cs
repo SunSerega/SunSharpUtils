@@ -193,7 +193,7 @@ internal sealed partial class ExampleDataStash(String states_dir, CancellationTo
             return res;
         }
 
-        public void ReadBlockOldVersion(CommonTypedModelInfo common_info, A parent, FileData_v1.B content) =>
+        public void ReadBlockOldVersion(ApplyBlockContext apply_block_context, CommonTypedModelInfo common_info, A parent, FileData_v1.B content) =>
             this.ReadBlock(common_info, parent, new FileData.B() { Id = content.Id, X = content.X }, is_new: false);
 
         public void Resave(TypedResaveContext context)

@@ -69,7 +69,7 @@ public sealed class RpcConnection : IDisposable
                 {
                     if (this.cancel_token.IsCancellationRequested || extra_cancel_token.IsCancellationRequested)
                     {
-                        if (ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
+                        if (ex.AreAllNestedExceptionsOfType<OperationCanceledException>())
                             return false;
                     }
 
@@ -80,7 +80,7 @@ public sealed class RpcConnection : IDisposable
                 }
 
                 if (ShouldReportError())
-                    Err.Handle(ex);
+                    Err.Handle($"Error while using {this}: {ex}");
             }
             Err.HandleDuring(() => this.ReportError(error_message: $"{ex}\n--- End of stack trace from remote {this} ---"));
             this.had_error = true;
@@ -225,7 +225,7 @@ public sealed class RpcConnection : IDisposable
                 {
                     this.ReadAsync(on_finish: () => { }, on_message: (_, _) => throw new InvalidDataException($"{this}: Expected finish packet, but got message packet"), CancellationToken.None).GetAwaiter().GetResult();
                 }
-                catch (Exception ex) when (this.cancel_token.IsCancellationRequested && ex.GetNestedExceptions().All(ex => ex is OperationCanceledException))
+                catch (Exception ex) when (ex.IsOnlyNestedOpCanceledExceptions(this.cancel_token))
                 {
                     // Don't report this
                 }
