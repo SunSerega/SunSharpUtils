@@ -38,6 +38,11 @@ public abstract class ConvertibleWithCache<TSelf> : ConvertibleWithCache
     where TSelf : ConvertibleWithCache<TSelf>
 {
 
+    /// <summary>
+    /// Called every time before <see cref="ConvertWithCache{TConverter, TResult}(ModelConverter{TConverter, TSelf, TResult})"/>
+    /// </summary>
+    protected virtual void SealBeforeConverting() { }
+
     private readonly ConcurrentDictionary<Type, CachedConvertedModel> cached_models = [];
 
     /// <summary>
@@ -55,6 +60,8 @@ public abstract class ConvertibleWithCache<TSelf> : ConvertibleWithCache
     {
         if (converter != Singleton<TConverter>.Instance)
             throw new ArgumentException($"Converter must be the singleton instance of {typeof(TConverter).FullName}", nameof(converter));
+
+        this.SealBeforeConverting();
         var cache_entry = (CachedConvertedModel<TResult>)this.cached_models.GetOrAdd(typeof(TConverter), _ => new CachedConvertedModel<TResult>
         {
             Result = converter.Convert((TSelf)this),

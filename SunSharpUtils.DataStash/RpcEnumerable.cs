@@ -123,8 +123,20 @@ public sealed class RpcEnumerableSource<T>()
     private String? error_message = null;
     private event Action? on_closed = null;
 
+    /// <summary>
+    /// </summary>
+    public event Action? OnAllDisconnected = null;
+
     // Cannot rely on this, because .Subscribe is called after exiting the client processing method
     //public Boolean IsConnected => this.subscribers.Any(subscriber => subscriber.IsConnected);
+
+    /// <summary>
+    /// </summary>
+    public void CheckDisconnected()
+    {
+        using var lock_scope = this.l_subscribers_and_items.EnterScope();
+        this.ForEachSubscriber(_ => { });
+    }
 
     /// <summary>
     /// Adds an item and notifies all subscribers
@@ -169,7 +181,7 @@ public sealed class RpcEnumerableSource<T>()
 
     internal void ForEachSubscriber(Action<Subscriber> act)
     {
-        this.subscribers.RemoveWhere(subscriber =>
+        var removed_count = this.subscribers.RemoveWhere(subscriber =>
         {
             if (!subscriber.IsConnected)
             {
@@ -190,6 +202,8 @@ public sealed class RpcEnumerableSource<T>()
                 return true;
             }
         });
+        if (removed_count != 0 && this.subscribers.Count == 0)
+            this.OnAllDisconnected?.Invoke();
     }
 
     /// <summary>
