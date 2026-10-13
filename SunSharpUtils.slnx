@@ -27,6 +27,7 @@
     <Folder Name="/5 Background/">
         <Project Path="SunSharpUtils.DataStash.Analyzer/SunSharpUtils.DataStash.Analyzer.csproj" Id="0f403c7f-ccf4-40c9-87b7-3349b6d54308" />
         <Project Path="SunSharpUtils.DataStash/SunSharpUtils.DataStash.csproj" Id="d3cbe490-fb61-442b-b66b-b5de1a91ecad" />
+        <Project Path="SunSharpUtils.SimpleBackup/SunSharpUtils.SimpleBackup.csproj" Id="e2432e51-234f-47b5-887c-60a0f1d6a9bc" />
         <Project Path="SunSharpUtils.WinSvc/SunSharpUtils.WinSvc.csproj" />
     </Folder>
     <Project Path="Tests/Tests.csproj" />

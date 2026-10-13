@@ -165,6 +165,9 @@ public sealed class RpcEnumerableSource<T>()
         this.ForEachSubscriber(subscriber => subscriber.Close(error_message));
         this.on_closed?.Invoke();
     }
+    /// <summary>
+    /// </summary>
+    public Boolean IsClosed => this.is_closed;
 
     /// <summary>
     /// Either runs the given action immediately, or adds it as a handler for <see cref="Close(String?)"/> method

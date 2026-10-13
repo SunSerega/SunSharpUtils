@@ -14,6 +14,7 @@ using SunSharpUtils.Ext.Exceptions;
 using SunSharpUtils.Ext.Linq;
 using SunSharpUtils.Ext.Math;
 using SunSharpUtils.Ids;
+using SunSharpUtils.SimpleBackup;
 using SunSharpUtils.Threading;
 using SunSharpUtils.UniversalBin;
 using SunSharpUtils.WinSvc;
@@ -39,9 +40,6 @@ namespace SunSharpUtils.DataStash;
 
 //TODO Another thing the consolidation should help with is zip-ing the contents of the files
 // - Keep the header outside zipping, so that version (and my beautiful magic number) can be read in plain bytes
-
-//TODO Backup files during each consolidation merge
-// - Keep last N merges saved, delete older ones
 
 //TODO A lot of interfaces here only exist to be required by code-generation (to make user code more strongly-typed)
 // - This pattern only makes sense to the one who thought through the code-generation, and will be confusing to basic users
@@ -241,14 +239,22 @@ public abstract class DataStash<TDataStash, TTypedContent>
     where TDataStash : DataStash<TDataStash, TTypedContent>
     where TTypedContent : class, DataStash<TDataStash, TTypedContent>.ITypedContent<TTypedContent>
 {
-    private readonly DirectoryInfo root_dir;
+    private readonly DirectoryInfo dir_root;
     private readonly CancellationToken svc_stop_token;
     private readonly Boolean log_all_added;
 
-    private readonly DirectoryInfo pending_dir;
+    private readonly DirectoryInfo dir_pending;
+    private readonly DirectoryInfo dir_sealed;
+    private readonly DirectoryInfo dir_sealing;
+    private readonly DirectoryInfo dir_consolidation;
 
     private static readonly String file_ext = ".bin";
 
+    private readonly BackupContainer backup_container;
+    private readonly BackupItem backup_item_pending;
+    private readonly BackupItem backup_item_sealed;
+
+    private readonly OneToManyLock l_pending_append = new(); // Reversed: Many locked for append, one locked for read
     private readonly OneToManyLock l_all_pending_and_sealed_state_files = new();
     private readonly List<FileId> all_sealed_state_files;
     private readonly ConcurrentDictionary<FileId, PendingFileGroup> all_pending_state_files = [];
@@ -269,13 +275,42 @@ public abstract class DataStash<TDataStash, TTypedContent>
     protected DataStash(String data_dir, CancellationToken svc_stop_token, Action<TTypedContent>? on_content_inited = null, Boolean log_all_added = false, DataStashConsolidationConfig? consolidation_config = null)
     {
         Prompt.Notify($"Initializing {this} in: {data_dir}");
-        this.root_dir = Directory.CreateDirectory(data_dir);
+        this.dir_root = Directory.CreateDirectory(data_dir);
         this.svc_stop_token = svc_stop_token;
         this.log_all_added = log_all_added;
 
-        this.pending_dir = this.root_dir.CreateSubdirectory("Pending");
+        this.dir_pending = this.dir_root.CreateSubdirectory("Pending");
+        this.dir_sealed = this.dir_root.CreateSubdirectory("Sealed");
+        this.dir_sealing = this.dir_root.CreateSubdirectory("Sealing");
+        this.dir_consolidation = this.dir_root.CreateSubdirectory("Consolidation");
 
-        this.all_sealed_state_files = this.root_dir.EnumerateFiles()
+        if (this.dir_sealing.EnumerateFileSystemInfos().Any())
+            throw new InvalidOperationException($"Sealing directory {this.dir_sealing.FullName} is not empty, cannot start");
+        this.dir_sealing.Delete(recursive: false);
+
+        if (this.dir_consolidation.EnumerateFileSystemInfos().Any())
+            throw new InvalidOperationException($"Consolidation directory {this.dir_consolidation.FullName} is not empty, cannot start");
+        this.dir_consolidation.Delete(recursive: false);
+
+        this.backup_container = new(Path.Combine(data_dir, "Backup"));
+        this.backup_item_pending = this.backup_container.AddItem(new()
+        {
+            Name = "Pending",
+            Path = this.dir_pending.FullName,
+            BackupDelay = TimeSpan.FromMinutes(1),
+            MaxBackupsToKeep = 10,
+            ExecuteReadLocked = act => this.l_pending_append.OneLocked(act, with_priority: true),
+        });
+        this.backup_item_sealed = this.backup_container.AddItem(new()
+        {
+            Name = "Sealed",
+            Path = this.dir_sealed.FullName,
+            BackupDelay = TimeSpan.Zero,
+            MaxBackupsToKeep = 5,
+            ExecuteReadLocked = this.l_all_pending_and_sealed_state_files.ManyLocked,
+        });
+
+        this.all_sealed_state_files = this.dir_sealed.EnumerateFiles()
             .Select(fi =>
             {
                 var file_name = fi.Name;
@@ -289,14 +324,14 @@ public abstract class DataStash<TDataStash, TTypedContent>
         foreach (var file_id in this.all_sealed_state_files)
         {
             Prompt.Notify($"Validating sealed state file {file_id}");
-            var file_path = Path.Combine(this.root_dir.FullName, $"{file_id}{file_ext}");
+            var file_path = Path.Combine(this.dir_sealed.FullName, $"{file_id}{file_ext}");
             using var fs = File.OpenRead(file_path);
             var content = this.ReadSealedFileContent(file_id);
             on_content_inited?.Invoke(content);
         }
         Prompt.Notify($"Validated {this.all_sealed_state_files.Count} sealed state files");
 
-        foreach (var sub_dir in this.pending_dir.EnumerateDirectories())
+        foreach (var sub_dir in this.dir_pending.EnumerateDirectories())
         {
             var pending_file_group = new PendingFileGroup(this, sub_dir, expect_existing_content: true, svc_stop_token);
             if (this.all_sealed_state_files.Contains(pending_file_group.Id))
@@ -338,7 +373,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
     private TTypedContent ReadSealedFileContent(FileId file_id)
     {
-        var file_path = Path.Combine(this.root_dir.FullName, $"{file_id}{file_ext}");
+        var file_path = Path.Combine(this.dir_sealed.FullName, $"{file_id}{file_ext}");
         using var fs = File.OpenRead(file_path);
         return this.ReadSealedFileContent($"{file_id}", file_id, fs);
     }
@@ -352,7 +387,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
     private void ReadAppendSealedFileContent(FileId file_id, TTypedContent content)
     {
-        var file_path = Path.Combine(this.root_dir.FullName, $"{file_id}{file_ext}");
+        var file_path = Path.Combine(this.dir_sealed.FullName, $"{file_id}{file_ext}");
         using var fs = File.OpenRead(file_path);
         this.ReadAppendSealedFileContent($"{file_id}", file_id, fs, content);
     }
@@ -502,7 +537,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
     protected T UseNewWriteLocation<T>(Func<BlockLocation, T> use) => this.l_all_pending_and_sealed_state_files.ManyLocked(() =>
     {
         var file_id = FileId.Current;
-        var pending_file_group = this.all_pending_state_files.GetOrAdd(file_id, id => new PendingFileGroup(this, this.pending_dir.CreateSubdirectory(id.ToString()), expect_existing_content: false, this.svc_stop_token));
+        var pending_file_group = this.all_pending_state_files.GetOrAdd(file_id, id => new PendingFileGroup(this, this.dir_pending.CreateSubdirectory(id.ToString()), expect_existing_content: false, this.svc_stop_token));
         var location = pending_file_group.ChooseWriteLocation();
         return use.Invoke(location);
     });
@@ -1207,9 +1242,13 @@ public abstract class DataStash<TDataStash, TTypedContent>
             // No need to explicitly wait, because all writers already register a wait for the cancellation token
 
             Prompt.Notify($"Sealing pending state {this.id}: Creating merged file");
-            var merge_dir = this.data_stash.root_dir.CreateSubdirectory("Sealing");
+            var merge_dir = this.data_stash.dir_sealing;
+            merge_dir.Create();
+            if (merge_dir.EnumerateFileSystemInfos().Any())
+                WinSvcCommon.HandleCriticalError(new MessageException($"Sealing pending state {this.id} failed: Merge dir {merge_dir.FullName} is not empty"), when_doing: $"sealing {this}");
+
             var merge_file_path = Path.Combine(merge_dir.FullName, $"{this.id}{file_ext}");
-            var final_file_path = Path.Combine(this.data_stash.root_dir.FullName, $"{this.id}{file_ext}");
+            var final_file_path = Path.Combine(this.data_stash.dir_sealed.FullName, $"{this.id}{file_ext}");
             using (var fs = File.Open(merge_file_path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 this.typed_content.Resave(fs, this.data_stash.CurrentTypedContentVersion);
             File.Move(merge_file_path, final_file_path, overwrite: false);
@@ -1271,7 +1310,6 @@ public abstract class DataStash<TDataStash, TTypedContent>
             this.write_cts.Token.Register(() => new_writer.WaitUntilProcessingFullyStopped(should_clear: false));
 
             var file_path = Path.Combine(this.dir.FullName, $"{index}{file_ext}");
-            var tmp_file_path = file_path + ".tmp";
 
             new_writer.StartProcessingThread(new()
             {
@@ -1280,10 +1318,9 @@ public abstract class DataStash<TDataStash, TTypedContent>
                 {
                     try
                     {
-                        if (File.Exists(file_path))
-                            File.Copy(file_path, tmp_file_path, overwrite: false);
-                        using (var fs = File.Open(tmp_file_path, FileMode.Append, FileAccess.Write, FileShare.None))
+                        this.data_stash.l_pending_append.ManyLocked(() =>
                         {
+                            using var fs = File.Open(file_path, FileMode.Append, FileAccess.Write, FileShare.None);
                             var bw = new BinaryWriter(fs);
                             if (fs.Position == 0)
                             {
@@ -1293,8 +1330,8 @@ public abstract class DataStash<TDataStash, TTypedContent>
                             foreach (var action in actions)
                                 action.Invoke(bw);
                             bw.Flush();
-                        }
-                        File.Move(tmp_file_path, file_path, overwrite: true);
+                        });
+                        this.data_stash.backup_item_pending.RequestBackup();
                     }
                     catch (Exception ex)
                     {
@@ -1592,6 +1629,8 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
                                     return true;
                                 });
+                                if (sealed_count != 0)
+                                    this.data_stash.backup_item_sealed.RequestBackup();
                                 //Prompt.Notify($"{this.data_stash} => {nameof(PendingSealer)}: Sealed {sealed_count}/{need_sealing_count} pending states");
                             }, with_priority: false);
                         }
@@ -1694,7 +1733,8 @@ public abstract class DataStash<TDataStash, TTypedContent>
                             this.data_stash.ReadAppendSealedFileContent(id_keep, content);
                             this.data_stash.ReadAppendSealedFileContent(id_merge, content);
 
-                            var merge_dir = this.data_stash.root_dir.CreateSubdirectory($"Consolidation");
+                            var merge_dir = this.data_stash.dir_consolidation;
+                            merge_dir.Create();
                             if (merge_dir.EnumerateFileSystemInfos().Any())
                                 WinSvcCommon.HandleCriticalError(new MessageException($"Directory {merge_dir.FullName} is not empty"), when_doing: $"attempting consolidation of {id_merge} => {id_keep}");
 
@@ -1715,12 +1755,13 @@ public abstract class DataStash<TDataStash, TTypedContent>
                             }
 
                             Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Cleanup after merging {id_merge} => {id_keep}");
-                            var final_file_path = Path.Combine(this.data_stash.root_dir.FullName, $"{id_keep}{file_ext}");
+                            var final_file_path = Path.Combine(this.data_stash.dir_sealed.FullName, $"{id_keep}{file_ext}");
                             File.Move(merge_file_path, final_file_path, overwrite: true);
-                            File.Delete(Path.Combine(this.data_stash.root_dir.FullName, $"{id_merge}{file_ext}"));
+                            File.Delete(Path.Combine(this.data_stash.dir_sealed.FullName, $"{id_merge}{file_ext}"));
                             this.data_stash.all_sealed_state_files.RemoveAt(next_merge_ind);
                             merge_dir.Delete(recursive: false);
                         }, with_priority: false);
+                        this.data_stash.backup_item_sealed.RequestBackup();
                         Prompt.Notify($"{this.data_stash} => {nameof(SealedConsolidator)}: Done consolidating {id_merge} => {id_keep}");
                     }
                     catch (Exception ex) when (ex.IsOnlyNestedOpCanceledExceptions(svc_stop_token))

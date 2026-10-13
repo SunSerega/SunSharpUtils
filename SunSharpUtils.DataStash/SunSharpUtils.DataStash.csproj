@@ -5,6 +5,7 @@
 	</PropertyGroup>
 	
     <ItemGroup>
+        <ProjectReference Include="..\SunSharpUtils.SimpleBackup\SunSharpUtils.SimpleBackup.csproj" />
         <ProjectReference Include="..\SunSharpUtils.Threading\SunSharpUtils.Threading.csproj" />
         <ProjectReference Include="..\SunSharpUtils.UniversalBin\SunSharpUtils.UniversalBin.csproj" />
         <ProjectReference Include="..\SunSharpUtils.WinSvc\SunSharpUtils.WinSvc.csproj" />
