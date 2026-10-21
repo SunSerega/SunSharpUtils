@@ -77,7 +77,7 @@ public sealed class RpcClientConnector(String target_description)
             {
                 using var socket = this.ConnectNewSocket();
                 using var connection = new RpcConnection(socket, act_description, cancel_token);
-                connection.ReportErrorsWhile(() => act.Invoke(connection, cancel_token), extra_cancel_token: default);
+                connection.ReportErrorsWhile(() => act.Invoke(connection, cancel_token), call_err_handle: false, extra_cancel_token: default);
                 break;
             }
             catch (Exception ex) when (ex.IsOnlyNestedOpCanceledExceptions(cancel_token))

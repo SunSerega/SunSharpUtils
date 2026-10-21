@@ -361,6 +361,10 @@ public abstract class DataStash<TDataStash, TTypedContent>
 
     /// <summary>
     /// </summary>
+    protected CancellationToken SvcStopToken => this.svc_stop_token;
+
+    /// <summary>
+    /// </summary>
     protected abstract TTypedContent CreateEmptyTypedContent();
 
     /// <summary>
