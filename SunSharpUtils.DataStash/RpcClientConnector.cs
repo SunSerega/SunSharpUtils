@@ -24,7 +24,7 @@ public sealed class RpcClientConnector(String target_description)
 
     /// <summary>
     /// </summary>
-    public readonly struct Config
+    public readonly struct Config()
     {
         /// <summary>
         /// </summary>
@@ -35,6 +35,15 @@ public sealed class RpcClientConnector(String target_description)
         /// <summary>
         /// </summary>
         public required CancellationToken CancelToken { get; init; }
+
+        /// <summary>
+        /// Default: 1 minute
+        /// </summary>
+        public TimeSpan ReceiveTimeout { get; init; } = TimeSpan.FromMinutes(1);
+        /// <summary>
+        /// Default: 1 second
+        /// </summary>
+        public TimeSpan SendTimeout { get; init; } = TimeSpan.FromSeconds(1);
 
         /// <summary>
         /// </summary>
@@ -118,8 +127,9 @@ public sealed class RpcClientConnector(String target_description)
         using var lock_scope = this.l_new_socket.EnterScope();
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
         {
-            SendTimeout = 1000,
-            ReceiveTimeout = 60000,
+            // -1 if Timeout.InfiniteTimeSpan
+            ReceiveTimeout = (Int32)config.ReceiveTimeout.TotalMilliseconds,
+            SendTimeout = (Int32)config.SendTimeout.TotalMilliseconds,
         };
         socket.Connect(config.Host, config.Port);
         return socket;

@@ -68,19 +68,18 @@ public static class WinSvcCommon
         /// </summary>
         public required Int32 Port { get; init; }
         /// <summary>
-        /// Maximum time allowed without receiving data from client before receive fails
+        /// Handler that would be launched in a new thread for each new client
+        /// </summary>
+        public required Action<Socket> OnClient { get; init; }
+
+        /// <summary>
         /// Default: 1 minute
         /// </summary>
         public TimeSpan ReceiveTimeout { get; init; } = TimeSpan.FromMinutes(1);
         /// <summary>
-        /// Maximum time allowed to send data to client before send fails
         /// Default: 1 second
         /// </summary>
         public TimeSpan SendTimeout { get; init; } = TimeSpan.FromSeconds(1);
-        /// <summary>
-        /// Handler that would be launched in a new thread for each new client
-        /// </summary>
-        public required Action<Socket> OnClient { get; init; }
     }
     /// <summary>
     /// Starts listening for socket connections on all local IPs with given port

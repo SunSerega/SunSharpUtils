@@ -171,7 +171,12 @@ public sealed class RpcConnection : IDisposable
             try
             {
                 using var linked_cts = CancellationTokenSource.CreateLinkedTokenSource(this.cancel_token, read_cancel_token);
+                linked_cts.CancelAfter(this.socket.ReceiveTimeout);
                 await this.stream.ReadExactlyAsync(new Memory<Byte>(kind_bytes), linked_cts.Token);
+            }
+            catch (OperationCanceledException) when (!this.cancel_token.IsCancellationRequested && !read_cancel_token.IsCancellationRequested)
+            {
+                throw new TimeoutException($"{this}: Timed out while waiting for data");
             }
             catch (EndOfStreamException)
             {
