@@ -9,6 +9,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 
+using SunSharpUtils.Ext.Array;
 using SunSharpUtils.Ext.Bin;
 using SunSharpUtils.Ext.Exceptions;
 using SunSharpUtils.Ext.Linq;
@@ -1074,7 +1075,7 @@ public abstract class DataStash<TDataStash, TTypedContent>
                     throw new InvalidOperationException($"Pending state {this.id} already exists, but was not expected to exist");
                 Prompt.Notify($"Loading pending state {this.id} from {this.file_count} parallel files");
 
-                var expected_files = Enumerable.Range(0, this.file_count).Select(i => $"{i}{file_ext}").ToHashSet();
+                var expected_files = ArrayExt.Generate(this.file_count, i => $"{i}{file_ext}").ToHashSet();
                 if (!expected_files.SetEquals(dir.EnumerateFiles().Select(fi => fi.Name)))
                     throw new InvalidOperationException($"Pending state {this.id} is corrupted: Expected to only have these files: {expected_files.JoinToString()}");
 

@@ -9,7 +9,7 @@ public static class ObjectExt
 {
 
     /// <summary>
-    /// Infinitely iterates on obj by transforming each element into the next one
+    /// Iterates on obj by transforming each element into the next one
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <param name="obj"></param>
@@ -26,6 +26,15 @@ public static class ObjectExt
                 break;
             obj = next;
         }
+    }
+
+    /// <summary>
+    /// </summary>
+    public static TResult Using<TObject, TResult>(this TObject obj, Func<TObject, TResult> func)
+        where TObject : IDisposable
+    {
+        using (obj)
+            return func(obj);
     }
 
 }

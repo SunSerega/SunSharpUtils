@@ -33,7 +33,7 @@ public sealed class BackupItem
                 WinSvcCommon.HandleCriticalError(ex, when_doing: $"parsing backup directory name '{dir_path}'");
             return dt_utc;
         }).ToArray();
-        foreach (var old_dir_path in existing_backup_dirs.Skip(this.config.MaxBackupsToKeep))
+        foreach (var old_dir_path in existing_backup_dirs.Skip(this.config.MaxBackupsToKeep-1))
             Directory.Delete(old_dir_path, recursive: true);
 
         var new_dt_utc = DateTime.UtcNow;

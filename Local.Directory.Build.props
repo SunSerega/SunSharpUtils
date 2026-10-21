@@ -2,16 +2,16 @@
 
 
 <Project>
-	
-	<PropertyGroup>
-		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    
+    <PropertyGroup>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-		<Authors>SunSerega</Authors>
+        <Authors>SunSerega</Authors>
         
-		<PackageOutputPath>$(MSBuildThisFileDirectory)\0Deployed</PackageOutputPath>
-		
-		<GenerateDocumentationFile>true</GenerateDocumentationFile>
-		<!--<NoWarn>$(NoWarn);CS1591</NoWarn>-->
+        <PackageOutputPath>$(MSBuildThisFileDirectory)\0Deployed</PackageOutputPath>
+        
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <!--<NoWarn>$(NoWarn);CS1591</NoWarn>-->
         
         <BuildFile>$(MSBuildProjectDirectory)\obj\build.txt</BuildFile>
         
@@ -43,6 +43,8 @@
         <PropertyGroup>
             <BuildNumber>$([MSBuild]::Add($(BuildNumber), 1))</BuildNumber>
         </PropertyGroup>
+        
+        <Message Text="Incremented local build number for $(MSBuildProjectName): $(BuildNumber)" Importance="High" />
         
         <WriteLinesToFile File="$(BuildFile)" Lines="$(BuildNumber)" Overwrite="true" />
     </Target>

@@ -52,6 +52,7 @@ public readonly struct IdAllocator<T>()
     }
     // From highest to lowest ids, to allow for faster allocation of low ids
     private readonly List<IdRange> unused = [new(T.MinValue, T.MaxValue)];
+    private readonly Lock l_alloc_free = new();
 
     /// <summary>
     /// Creates new IdAllocator with the list of already pre-allocated IDs
@@ -83,8 +84,6 @@ public readonly struct IdAllocator<T>()
         if (last_id != T.MinValue)
             this.unused.Add(new(T.MinValue, last_id-1));
     }
-
-    private readonly Lock l_alloc_free = new();
 
     /// <summary>
     /// </summary>
