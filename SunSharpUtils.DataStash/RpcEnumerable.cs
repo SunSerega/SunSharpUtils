@@ -141,16 +141,18 @@ public sealed class RpcEnumerableSource<T> where T : notnull
 {
     private readonly Lock l_subscribers_and_items = new();
     private readonly HashSet<Subscriber> subscribers = [];
-    private readonly List<T> existing_items = [];
+    private readonly IInitialListManager init_list_mngr;
     private Boolean is_closed = false;
-    private String? error_message = null;
+    private String? error_message = null; // Only valid when is_closed
 
     /// <summary>
     /// </summary>
+    /// <param name="make_init_list_mngr"></param>
     /// <param name="ping_stop_token"></param>
     /// <param name="ping_config">Default every 1 second if null. Can be set to Timeout.InfiniteTimeSpan to disable pinging</param>
-    public RpcEnumerableSource(CancellationToken ping_stop_token, PingConfig? ping_config = null)
+    public RpcEnumerableSource(Func<InitialListManagerFactory, IInitialListManager> make_init_list_mngr, CancellationToken ping_stop_token, PingConfig? ping_config = null)
     {
+        this.init_list_mngr = make_init_list_mngr.Invoke(new());
         ping_config ??= new()
         {
             Interval = TimeSpan.FromSeconds(1),
@@ -167,7 +169,7 @@ public sealed class RpcEnumerableSource<T> where T : notnull
             {
                 try
                 {
-                    while (true)
+                    while (!ping_stop_token.IsCancellationRequested)
                     {
                         Thread.Sleep(ping_interval);
                         using var lock_scope = this.l_subscribers_and_items.EnterScope();
@@ -187,10 +189,6 @@ public sealed class RpcEnumerableSource<T> where T : notnull
     }
 
     private event Action? on_closed = null;
-
-    /// <summary>
-    /// </summary>
-    public event Action? OnAllDisconnected = null;
 
     /// <summary>
     /// </summary>
@@ -230,7 +228,7 @@ public sealed class RpcEnumerableSource<T> where T : notnull
         using var lock_scope = this.l_subscribers_and_items.EnterScope();
         if (this.is_closed)
             throw new InvalidOperationException($"{this} is already closed");
-        this.existing_items.Add(item);
+        this.init_list_mngr.OnPushed(item);
         this.ForEachSubscriber(subscriber => subscriber.Send(item));
     }
 
@@ -288,8 +286,6 @@ public sealed class RpcEnumerableSource<T> where T : notnull
                 return true;
             }
         });
-        if (removed_count != 0 && this.subscribers.Count == 0)
-            this.OnAllDisconnected?.Invoke();
     }
 
     /// <summary>
@@ -297,7 +293,7 @@ public sealed class RpcEnumerableSource<T> where T : notnull
     public Subscriber Subscribe(RpcConnection connection)
     {
         using var lock_scope = this.l_subscribers_and_items.EnterScope();
-        var subscriber = new Subscriber(this, connection, this.existing_items);
+        var subscriber = new Subscriber(this, connection, this.init_list_mngr.GetClientInitialItems());
         if (this.is_closed)
             subscriber.Close(this.error_message);
         else
@@ -366,6 +362,79 @@ public sealed class RpcEnumerableSource<T> where T : notnull
         public override String ToString() =>
             $"{nameof(RpcEnumerableSource<>)}<{typeof(T).Name}>.{nameof(Subscriber)} => {this.connection}";
 
+    }
+
+    /// <summary>
+    /// Manages what items are sent to each client on connect
+    /// </summary>
+    public interface IInitialListManager
+    {
+        /// <summary>
+        /// </summary>
+        public void OnPushed(T item);
+        /// <summary>
+        /// </summary>
+        public ICollection<T> GetClientInitialItems();
+    }
+
+    /// <summary>
+    /// </summary>
+    public readonly struct InitialListManagerFactory
+    {
+        /// <summary>
+        /// Creates manager that stores all pushed items forever, and sends complete history to each new client
+        /// </summary>
+        public IInitialListManager CreatePermaHolder() => new InitialListPermaHolder();
+        /// <summary>
+        /// Creates manager that doesn't store any pushed items and generates the initial list from scratch for each new client
+        /// </summary>
+        /// <param name="act"></param>
+        /// <returns></returns>
+        public IInitialListManager CreateRegenerator(Func<ICollection<T>> act) => new InitialListRegenerator() { RegenerateInitialList = act };
+        /// <summary>
+        /// Creates manager that stores pushed items until the first client connects
+        /// <para/>
+        /// When first client connects, the initial list is sent and discarded
+        /// <para/>
+        /// Subsequent clients will fail to connect
+        /// </summary>
+        /// <returns></returns>
+        public IInitialListManager CreateSingleUseBuffer() => new InitialListSingleUseBuffer();
+    }
+
+    private sealed class InitialListPermaHolder : IInitialListManager
+    {
+        private readonly List<T> items = [];
+        public void OnPushed(T item) => this.items.Add(item);
+        public ICollection<T> GetClientInitialItems() => this.items.ToArray();
+    }
+
+    private sealed class InitialListRegenerator : IInitialListManager
+    {
+        public required Func<ICollection<T>> RegenerateInitialList { get; init; }
+        public void OnPushed(T item) { }
+        public ICollection<T> GetClientInitialItems() => this.RegenerateInitialList.Invoke();
+    }
+
+    private sealed class InitialListSingleUseBuffer : IInitialListManager
+    {
+        private readonly List<T> items = [];
+        private Boolean has_been_used = false;
+        public void OnPushed(T item)
+        {
+            if (this.has_been_used)
+                return;
+            this.items.Add(item);
+        }
+        public ICollection<T> GetClientInitialItems()
+        {
+            if (this.has_been_used)
+                throw new InvalidOperationException($"{nameof(InitialListSingleUseBuffer)} can only be used once");
+            this.has_been_used = true;
+            var result = this.items.ToArray();
+            this.items.Clear();
+            return result;
+        }
     }
 
 }

@@ -63,25 +63,28 @@ public sealed class RpcConnection : IDisposable
         }
         catch (Exception ex)
         {
-            if (this.IsConnected)
+            Boolean ShouldCallErrHandle()
             {
-                Boolean ShouldReportError()
+                if (!call_err_handle)
+                    return false;
+
+                if (!this.IsConnected)
+                    return false;
+
+                if (this.cancel_token.IsCancellationRequested || extra_cancel_token.IsCancellationRequested)
                 {
-                    if (this.cancel_token.IsCancellationRequested || extra_cancel_token.IsCancellationRequested)
-                    {
-                        if (ex.AreAllNestedExceptionsOfType<OperationCanceledException>())
-                            return false;
-                    }
-
-                    if (ex is RpcConnectionReturnedErrorException)
+                    if (ex.AreAllNestedExceptionsOfType<OperationCanceledException>())
                         return false;
-
-                    return true;
                 }
 
-                if (ShouldReportError())
-                    Err.Handle($"Error while using {this}: {ex}");
+                if (ex is RpcConnectionReturnedErrorException)
+                    return false;
+
+                return true;
             }
+            if (ShouldCallErrHandle())
+                Err.Handle($"Error while using {this}: {ex}");
+
             Err.HandleDuring(() => this.ReportError(error_message: $"{ex}\n--- End of stack trace from remote {this} ---"));
             this.had_error = true;
             throw;

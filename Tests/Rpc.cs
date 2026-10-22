@@ -110,7 +110,7 @@ public class Rpc
                 OnMethodStreamed1: (input, cancel_token) =>
                 {
                     Assert.AreEqual(len, input);
-                    var source = new RpcEnumerableSource<Int32>(ping_stop_token: default);
+                    var source = new RpcEnumerableSource<Int32>(f => f.CreatePermaHolder(), ping_stop_token: default);
                     var i = 0;
                     for (; i < len_existing; i++)
                         source.Push(i);
@@ -163,7 +163,7 @@ public class Rpc
                     throw new InvalidOperationException("MethodStreamed1 should not be called here"),
                 OnMethodStreamed2: (cancel_token) =>
                 {
-                    var source = new RpcEnumerableSource<Int32>(ping_stop_token: default);
+                    var source = new RpcEnumerableSource<Int32>(f => f.CreatePermaHolder(), ping_stop_token: default);
                     var i = 0;
                     for (; i < len_existing; i++)
                         source.Push(i);
@@ -212,7 +212,7 @@ public class Rpc
                 OnMethodStreamed3Blocking: (input, cancel_token) =>
                 {
                     Assert.AreEqual(len, input);
-                    var source = new RpcEnumerableSource<Int32>(ping_stop_token: default);
+                    var source = new RpcEnumerableSource<Int32>(f => f.CreatePermaHolder(), ping_stop_token: default);
                     var i = 0;
                     for (; i < len_existing; i++)
                         source.Push(i);
