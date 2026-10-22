@@ -13,10 +13,11 @@ namespace SunSharpUtils.DependentComputations;
 public interface IDependentValue
 {
     internal DependentValueGroup Group { get; }
-    internal Boolean HasValue { get; }
-    internal IDependentValue? Recompute(DependentValueGroup.GroupComputingContext context);
+    internal Boolean IsValueMissing { get; }
+    internal IDependentValue? TryRecompute(DependentValueGroup.GroupComputingContext context);
     internal void SetComputeException(Exception ex);
-    internal void Invalidate(DependentValueGroup.GroupComputingContext context);
+    internal void MarkInvalidated();
+    internal void RequestRecompute(DependentValueGroup.GroupComputingContext context);
 }
 
 /// <summary>
@@ -31,10 +32,12 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
     private readonly DependentValueGroup.ComputeFunc<T> compute_func;
     private readonly IEqualityComparer<T> equality_comparer;
 
+    private readonly List<DependentValueSourceBase> current_direct_sources = []; // NOTE: Only used for resetting is_value_missing/last_ex
     private IDependentValue[] next_compute_requirements;
-    private Exception? compute_ex = null;
-    private ComputeResult? computed = null;
-    private ValueTuple<T>? last_result = null;
+    private Boolean is_invalidated = true; // NOTE: Can be invalidated but not missing value, if dependency didn't compute yet (incl. if it failed to compute)
+    private Boolean is_value_missing = true; 
+    private Exception? last_ex = null; // NOTE: Stays assigned until dependency changes
+    private ValueTuple<T>? last_success_result = null; // NOTE: Can be not-null even if is_value_missing. Used for checking if value change event should fire
 
     internal DependentValue(DependentValueGroup group, String name, DependentValueGroup.ComputeFunc<T> compute_func, IEqualityComparer<T> equality_comparer, IDependentValue[] initial_requirements)
     {
@@ -44,16 +47,6 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
         this.equality_comparer = equality_comparer;
         this.next_compute_requirements = initial_requirements;
     }
-
-    /// <summary>
-    /// Used only for <see cref="ToString"/>, for debugging and logging purposes
-    /// </summary>
-    public String Name { get; }
-
-    /// <summary>
-    /// Triggered when the value changes after a recompute, with the new value as argument
-    /// </summary>
-    public event Action<T>? OnUpdated = null;
 
     /// <summary>
     /// Strategy to use when this value has not been computed yet but is requested in another value's compute function
@@ -67,51 +60,71 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
     /// </summary>
     public EDependentValueNextRequirementsStrategy? NextRequirementsStrategy { get; set; } = null;
 
+    /// <summary>
+    /// Used only for <see cref="ToString"/>, for debugging and logging purposes
+    /// </summary>
+    public String Name { get; }
+
+    /// <summary>
+    /// Should not be used in compute functions
+    /// </summary>
+    public T CurrentValueOrThrow => this.CheckCurrentValue(
+        on_value: v => v,
+        on_failed: ex => throw new DependenctValueComputeFuncThrewException(this, ex),
+        on_not_computed_yet: () => throw new InvalidOperationException($"{this} has not been computed yet. {nameof(DependentValueGroup.IsUpdating)} is not set either in {this.group} or group of one of the (maybe indirect) depencies")
+    );
+
+    /// <summary>
+    /// Triggered when the value changes after a recompute, with the new value as argument
+    /// </summary>
+    public event Action<T>? OnUpdated = null;
+
+    /// <summary>
+    /// Should not be used in compute functions
+    /// </summary>
+    /// <typeparam name="TResult"></typeparam>
+    /// <param name="on_value"></param>
+    /// <param name="on_failed"></param>
+    /// <param name="on_not_computed_yet"></param>
+    /// <returns></returns>
+    public TResult CheckCurrentValue<TResult>(Func<T, TResult> on_value, Func<Exception, TResult> on_failed, Func<TResult> on_not_computed_yet)
+    {
+        if (this.last_ex is not null)
+            return on_failed(this.last_ex);
+        if (this.is_invalidated)
+            return on_not_computed_yet();
+        var result = this.last_success_result ?? throw null!;
+        return on_value(result.Item1);
+    }
+
     DependentValueGroup IDependentValue.Group => this.group;
 
-    Boolean IDependentValue.HasValue => this.computed is not null;
+    Boolean IDependentValue.IsValueMissing => this.is_value_missing;
 
-    IDependentValue? IDependentValue.Recompute(DependentValueGroup.GroupComputingContext group_context)
+    IDependentValue? IDependentValue.TryRecompute(DependentValueGroup.GroupComputingContext group_context)
     {
-        if (this.computed is not null)
+        if (!this.is_value_missing)
             throw new InvalidOperationException($"{this} is already computed");
-        if (this.compute_ex is not null)
-            throw new DependenctValueComputeFuncThrewException(this, this.compute_ex);
+        if (this.last_ex is not null)
+            throw new DependenctValueComputeFuncThrewException(this, this.last_ex);
+        if (this.current_direct_sources.Count != 0)
+            throw new InvalidOperationException($"{this} is in invalid state: recompute is required, but {nameof(this.current_direct_sources)} was not cleared: {this.current_direct_sources.JoinToString()}");
 
         foreach (var req in this.next_compute_requirements)
         {
-            if (req.HasValue)
+            if (!req.IsValueMissing)
                 continue;
             return req;
         }
 
         var value_context = new DependentValueGroup.ValueComputingContext();
-        if (!Err.TryCatch(() => this.compute_func.Invoke(value_context), out var result, out var ex) && !value_context.IsMissingDependencies)
-        {
-            if (ex is DependencyValueNotYetComputedException dep_ex)
-                return dep_ex.Dep;
-            this.compute_ex = ex;
-            throw new DependenctValueComputeFuncThrewException(this, ex);
-        }
-        if (value_context.IsMissingDependencies)
-            return value_context.Seal().OfType<IDependentValue>().First(dep => !dep.HasValue);
+        var caught_ex = !Err.TryCatch(() => this.compute_func.Invoke(value_context), out var result, out var ex);
 
-        if (this.last_result is not { Item1: var last_result_value } || !this.equality_comparer.Equals(last_result_value, result))
-        {
-            this.OnUpdated?.Invoke(result!);
-            this.InvalidateDeps(group_context);
-            this.last_result = new(result!);
-        }
+        if (caught_ex && ex is DependencyValueNotYetComputedException dep_ex)
+            return dep_ex.Dep;
 
         var direct_sources = value_context.Seal();
-        foreach (var source in direct_sources)
-            source.AddDep(this);
-        this.computed = new()
-        {
-            DirectSources = direct_sources
-        };
-
-        this.next_compute_requirements =(this.NextRequirementsStrategy ?? this.group.DefaultNextRequirementsStrategy) switch
+        this.next_compute_requirements = (this.NextRequirementsStrategy ?? this.group.DefaultNextRequirementsStrategy) switch
         {
             EDependentValueNextRequirementsStrategy.SetEmpty => [],
             EDependentValueNextRequirementsStrategy.SetLast => direct_sources.ToArray((dep, [MaybeNullWhen(false)] out success) =>
@@ -122,39 +135,90 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
             }),
             _ => throw new NotImplementedException($"Unexpected {nameof(EDependentValueNextRequirementsStrategy)} value: {this.NextRequirementsStrategy}"),
         };
+
+        if (value_context.IsMissingDependencies)
+        {
+            return direct_sources.OfType<IDependentValue>().First(dep => dep.IsValueMissing);
+        }
+        else
+        {
+            foreach (var source in direct_sources)
+            {
+                source.AddDep(this);
+                this.current_direct_sources.Add(source);
+            }
+        }
+
+        if (caught_ex)
+        {
+            this.last_ex = ex;
+            throw new DependenctValueComputeFuncThrewException(this, ex!);
+        }
+        else
+        {
+            if (this.last_success_result is not { Item1: var last_result_value } || !this.equality_comparer.Equals(last_result_value, result))
+            {
+                this.OnUpdated?.Invoke(result!);
+                this.RequestDepsRecompute(group_context);
+                this.last_success_result = new(result!);
+            }
+
+            this.is_value_missing = false;
+            this.last_success_result = new(result!);
+        }
+
+        if (value_context.IsMissingDependencies)
+        {
+            this.next_compute_requirements = value_context.Seal().OfType<IDependentValue>().ToArray();
+            return this.next_compute_requirements.First(dep => dep.IsValueMissing);
+        }
+
         return null;
     }
 
-    void IDependentValue.SetComputeException(Exception ex) => this.compute_ex = ex;
-
-    void IDependentValue.Invalidate(DependentValueGroup.GroupComputingContext context)
+    void IDependentValue.SetComputeException(Exception ex)
     {
-        this.compute_ex = null;
-        if (this.computed is not { DirectSources: var direct_sources })
-            return;
-        this.computed = null;
+        if (!this.is_value_missing)
+            throw new InvalidOperationException($"Cannot set exception for {this}: it is not pending");
+        this.last_ex = ex;
+    }
 
-        foreach (var source in direct_sources)
+    void IDependentValue.MarkInvalidated()
+    {
+        if (this.is_invalidated)
+            return;
+        this.is_invalidated = true;
+        this.MarkDepsInvalidated();
+    }
+
+    void IDependentValue.RequestRecompute(DependentValueGroup.GroupComputingContext context)
+    {
+        if (this.last_ex is not null)
+            this.last_ex = null;
+        else if (!this.is_value_missing)
+            this.is_value_missing = true;
+        else
+            return;
+        
+        for (var i = this.current_direct_sources.Count-1; i >= 0; i--)
+        {
+            var source = this.current_direct_sources[i];
             source.RemoveDep(this);
+            this.current_direct_sources.RemoveAt(i);
+        }
 
         if (context.IsInGroup(this) || this.group.IsUpdating)
             context.MarkForRecompute(this);
         else
             this.group.MarkForRecompute(this);
 
-        // Don't invalidate until this is recomputed and the new value is different from the last value
-        // - Otherwise we recompute values whose inputs didn't change
-        //this.InvalidateDeps(context);
+        this.is_invalidated = true;
+        this.MarkDepsInvalidated();
     }
 
-    /// <summary>
-    /// </summary>
-    public override String ToString() =>
-        $"{nameof(DependentValue<>)}<{typeof(T)}>({this.Name})";
-
-    internal override T GetValueOrThrow(EDependencyValueMissingRequirementStrategy? on_missing, ref Boolean is_missing_dependencies)
+    internal override T UseValueOrThrow(EDependencyValueMissingRequirementStrategy? on_missing, ref Boolean is_missing_dependencies)
     {
-        if (this.computed is null)
+        if (this.is_value_missing)
         {
             is_missing_dependencies = true;
             return (on_missing ?? this.ValueMissingStrategy ?? this.group.DefaultMissingRequirementStrategy) switch
@@ -164,12 +228,12 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
                 _ => throw new NotImplementedException($"Unexpected {nameof(EDependencyValueMissingRequirementStrategy)} value: {on_missing}"),
             };
         }
-        return this.last_result!.Value.Item1;
+        return this.last_success_result!.Value.Item1;
     }
 
-    private readonly struct ComputeResult
-    {
-        public required DependentValueSourceBase[] DirectSources { get; init; }
-    }
+    /// <summary>
+    /// </summary>
+    public override String ToString() =>
+        $"{nameof(DependentValue<>)}<{typeof(T)}>({this.Name})";
 
 }

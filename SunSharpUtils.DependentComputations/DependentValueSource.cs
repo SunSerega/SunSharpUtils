@@ -23,10 +23,16 @@ public abstract class DependentValueSourceBase
             throw new InvalidOperationException($"Dependent value {dep} was not found in the source's deps list");
     }
 
-    private protected void InvalidateDeps(DependentValueGroup.GroupComputingContext context)
+    private protected void MarkDepsInvalidated()
     {
         foreach (var dep in this.deps.ToArray())
-            dep.Invalidate(context);
+            dep.MarkInvalidated();
+    }
+
+    private protected void RequestDepsRecompute(DependentValueGroup.GroupComputingContext context)
+    {
+        foreach (var dep in this.deps.ToArray())
+            dep.RequestRecompute(context);
         if (this.deps.Count != 0)
             throw new InvalidOperationException($"Some dependent values did not remove themselves from the source's deps list");
     }
@@ -34,7 +40,7 @@ public abstract class DependentValueSourceBase
     private protected void RecomputeDeps()
     {
         var context = new DependentValueGroup.GroupComputingContext(null);
-        this.InvalidateDeps(context);
+        this.RequestDepsRecompute(context);
         context.ComputeAll();
     }
 
@@ -45,5 +51,5 @@ public abstract class DependentValueSourceBase
 /// </summary>
 public abstract class DependentValueSource<T> : DependentValueSourceBase
 {
-    internal abstract T GetValueOrThrow(EDependencyValueMissingRequirementStrategy? on_missing, ref Boolean is_missing_dependencies);
+    internal abstract T UseValueOrThrow(EDependencyValueMissingRequirementStrategy? on_missing, ref Boolean is_missing_dependencies);
 }

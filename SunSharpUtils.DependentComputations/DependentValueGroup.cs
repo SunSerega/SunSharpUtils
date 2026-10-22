@@ -134,7 +134,7 @@ public sealed class DependentValueGroup(String name)
             if (this.is_sealed)
                 throw new InvalidOperationException($"{nameof(ValueComputingContext)}.Use can only be called from compute function");
             this.direct_sources.Add(source);
-            return source.GetValueOrThrow(on_missing, ref this.is_missing_dependencies);
+            return source.UseValueOrThrow(on_missing, ref this.is_missing_dependencies);
         }
 
         /// <summary>
@@ -155,7 +155,7 @@ public sealed class DependentValueGroup(String name)
         private readonly DependentValueGroup? group = group;
         private readonly HashSet<IDependentValue> need_update = [];
 
-        internal Boolean IsInGroup(IDependentValue v) => v.Group == this.group;
+        internal Boolean IsInGroup(IDependentValue v) => this.group is not null && v.Group == this.group;
 
         internal void MarkForRecompute(IDependentValue v) => this.need_update.Add(v);
 
@@ -177,7 +177,7 @@ public sealed class DependentValueGroup(String name)
 
                     while (dep_chain.TryPop(out var v))
                     {
-                        if (!Err<DependenctValueComputeFuncThrewException>.TryCatch(() => v.Recompute(this), out var missing_dep, out var ex))
+                        if (!Err<DependenctValueComputeFuncThrewException>.TryCatch(() => v.TryRecompute(this), out var missing_dep, out var ex))
                         {
                             dep_chain.Push(v);
                             errors.Add(ex);
@@ -218,6 +218,6 @@ public sealed class DependentValueGroup(String name)
     /// <summary>
     /// </summary>
     public override String ToString() =>
-        $"{nameof(DependentValueGroup)}({this.Name})";
+        $"{nameof(DependentValueGroup)}[IsUpdating={this.IsUpdating}]({this.Name})";
 
 }

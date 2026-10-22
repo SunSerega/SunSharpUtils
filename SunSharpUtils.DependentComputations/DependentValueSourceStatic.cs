@@ -32,7 +32,7 @@ public sealed class DependentValueSourceStatic<T>(String name, IEqualityComparer
         }
     }
 
-    internal override T GetValueOrThrow(EDependencyValueMissingRequirementStrategy? on_missing, ref Boolean is_missing_dependencies) => this.Value;
+    internal override T UseValueOrThrow(EDependencyValueMissingRequirementStrategy? on_missing, ref Boolean is_missing_dependencies) => this.Value;
 
     /// <summary>
     /// </summary>
