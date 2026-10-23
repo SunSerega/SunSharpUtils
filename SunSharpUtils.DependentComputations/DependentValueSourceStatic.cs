@@ -27,12 +27,16 @@ public sealed class DependentValueSourceStatic<T>(String name, IEqualityComparer
         {
             if (this.equality_comparer.Equals(field, value))
                 return;
+            this.TriggerOnUpdated(value);
             field = value;
             this.RecomputeDeps();
         }
     }
 
     internal override T UseValueOrThrow(EDependencyValueMissingRequirementStrategy? on_missing, ref Boolean is_missing_dependencies) => this.Value;
+
+    /// <inheritdoc/>
+    public override T CurrentValueOrThrow => this.Value;
 
     /// <summary>
     /// </summary>

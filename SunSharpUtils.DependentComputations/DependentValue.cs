@@ -65,22 +65,15 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
     /// </summary>
     public String Name { get; }
 
-    /// <summary>
-    /// Should not be used in compute functions
-    /// </summary>
-    public T CurrentValueOrThrow => this.CheckCurrentValue(
+    /// <inheritdoc/>
+    public override T CurrentValueOrThrow => this.CheckCurrentValue(
         on_value: v => v,
         on_failed: ex => throw new DependenctValueComputeFuncThrewException(this, ex),
         on_not_computed_yet: () => throw new InvalidOperationException($"{this} has not been computed yet. {nameof(DependentValueGroup.IsUpdating)} is not set either in {this.group} or group of one of the (maybe indirect) depencies")
     );
 
     /// <summary>
-    /// Triggered when the value changes after a recompute, with the new value as argument
-    /// </summary>
-    public event Action<T>? OnUpdated = null;
-
-    /// <summary>
-    /// Should not be used in compute functions
+    /// Generally should not be used in compute functions, because this circumvents the dependency tracking
     /// </summary>
     /// <typeparam name="TResult"></typeparam>
     /// <param name="on_value"></param>
@@ -158,9 +151,10 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
         {
             if (this.last_success_result is not { Item1: var last_result_value } || !this.equality_comparer.Equals(last_result_value, result))
             {
-                this.OnUpdated?.Invoke(result!);
+                this.TriggerOnUpdated(result!);
                 this.RequestDepsRecompute(group_context);
                 this.last_success_result = new(result!);
+                this.is_invalidated = false;
             }
 
             this.is_value_missing = false;

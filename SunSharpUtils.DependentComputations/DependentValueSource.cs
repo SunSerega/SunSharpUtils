@@ -52,4 +52,20 @@ public abstract class DependentValueSourceBase
 public abstract class DependentValueSource<T> : DependentValueSourceBase
 {
     internal abstract T UseValueOrThrow(EDependencyValueMissingRequirementStrategy? on_missing, ref Boolean is_missing_dependencies);
+
+    /// <summary>
+    /// Generally should not be used in compute functions, because this circumvents the dependency tracking
+    /// </summary>
+    public abstract T CurrentValueOrThrow { get; }
+
+    /// <summary>
+    /// Triggered when the value is set and is not equal to the previous value
+    /// <para/>
+    /// Argument: the new value
+    /// </summary>
+    public event Action<T>? OnUpdated = null;
+    /// <summary>
+    /// </summary>
+    protected void TriggerOnUpdated(T value) => this.OnUpdated?.Invoke(value);
+
 }
