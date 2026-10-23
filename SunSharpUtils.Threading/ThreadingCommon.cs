@@ -68,6 +68,24 @@ public static class ThreadingCommon
     }
 
     /// <summary>
+    /// Runs action under this lock
+    /// </summary>
+    /// <param name="l"></param>
+    /// <param name="act"></param>
+    public static void LockedDo(this Lock l, Action act)
+    {
+        //var hash = l.GetHashCode();
+        //var trace = Environment.StackTrace;
+        //Prompt.Notify($"LockedDo [{hash}] 1:\n{trace}");
+        lock (l)
+        {
+            //Prompt.Notify($"LockedDo [{hash}] 2:\n{trace}");
+            act();
+            //Prompt.Notify($"LockedDo [{hash}] 3:\n{trace}");
+        }
+    }
+
+    /// <summary>
     /// Runs the function under this lock, returning its result
     /// </summary>
     /// <typeparam name="T"></typeparam>
@@ -76,8 +94,16 @@ public static class ThreadingCommon
     /// <returns></returns>
     public static T LockedGet<T>(this Lock l, Func<T> get)
     {
+        //var hash = l.GetHashCode();
+        //var trace = Environment.StackTrace;
+        //Prompt.Notify($"LockedGet [{hash}] 1:\n{trace}");
         lock (l)
-            return get();
+        {
+            //Prompt.Notify($"LockedGet [{hash}] 2:\n{trace}");
+            var result = get();
+            //Prompt.Notify($"LockedGet [{hash}] 3:\n{trace}");
+            return result;
+        }
     }
 
 }

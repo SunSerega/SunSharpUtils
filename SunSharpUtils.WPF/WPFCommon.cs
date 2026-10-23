@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Linq;
 using System.Windows;
+using System.Windows.Media;
 
 namespace SunSharpUtils.WPF;
 
@@ -93,6 +94,32 @@ public static class WPFCommon
                 handler
             );
         }
+    }
+
+    /// <summary>
+    /// Iterates visual tree upwards, until the first TViewModel is found
+    /// <para/>
+    /// Strongly casts view model's DataContext to TDataModel, and returns it
+    /// </summary>
+    /// <typeparam name="TViewModel"></typeparam>
+    /// <typeparam name="TDataModel"></typeparam>
+    /// <param name="dependency_object"></param>
+    /// <returns></returns>
+    public static TDataModel? GetAncestorDataContext<TViewModel, TDataModel>(this DependencyObject dependency_object)
+        where TDataModel : class
+        where TViewModel : FrameworkElement
+    {
+        var ancestor = VisualTreeHelper.GetParent(dependency_object);
+        while (ancestor is Visual)
+        {
+            if (ancestor is TViewModel)
+            {
+                var framework_element = (FrameworkElement)ancestor;
+                return (TDataModel?)framework_element.DataContext;
+            }
+            ancestor = VisualTreeHelper.GetParent(ancestor);
+        }
+        return null;
     }
 
 }

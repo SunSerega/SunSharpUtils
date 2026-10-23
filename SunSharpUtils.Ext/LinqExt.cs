@@ -89,6 +89,24 @@ public static class LinqExt
 
     /// <summary>
     /// </summary>
+    public static T2[] ToArray<T1, T2>(this IReadOnlyCollection<T1> coll, Func<T1, Int32, T2> conv)
+    {
+        var res = new T2[coll.Count];
+        var i = 0;
+        foreach (var item in coll)
+        {
+            res[i] = conv(item, i);
+            i += 1;
+        }
+        if (i != res.Length)
+            throw new ArgumentException($"Collection size changed {res.Length}=>{i} during conversion");
+        if (i == 0)
+            return [];
+        return res;
+    }
+
+    /// <summary>
+    /// </summary>
     public delegate T2 ConditionalConverter<T1, T2>(T1 item, out Boolean success);
     /// <summary>
     /// </summary>

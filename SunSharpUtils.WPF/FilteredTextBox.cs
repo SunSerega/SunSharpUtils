@@ -25,7 +25,7 @@ public class FilteredTextBox<T> : ContentControl
 
     /// <summary>
     /// </summary>
-    public delegate Boolean FilterFunc(String text, [NotNullWhen(true)] out T? value);
+    public delegate Boolean FilterFunc(String text, [MaybeNullWhen(false)] out T value);
 
     /// <summary>
     /// </summary>
