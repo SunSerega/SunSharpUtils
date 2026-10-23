@@ -77,7 +77,7 @@ public sealed class RpcClientConnector(String target_description)
             {
                 using var socket = this.ConnectNewSocket();
                 using var connection = new RpcConnection(socket, act_description, cancel_token);
-                connection.ReportErrorsWhile(() => act.Invoke(connection, cancel_token), call_err_handle: false, extra_cancel_token: default);
+                connection.ReportErrorsWhile(() => act.Invoke(connection, cancel_token));
                 break;
             }
             catch (Exception ex) when (ex.IsOnlyNestedOpCanceledExceptions(cancel_token))
@@ -101,7 +101,7 @@ public sealed class RpcClientConnector(String target_description)
                 }
                 else
                 {
-                    Err.Handle($"{this}: Error communicating Client=>Server\n{ex}");
+                    Err.Handle($"{this}: Error communicating Client=>Server [{act_description}]\n{ex}");
                 }
                 cancel_token.WaitHandle.WaitOne(TimeSpan.FromSeconds(1));
                 cancel_token.ThrowIfCancellationRequested();

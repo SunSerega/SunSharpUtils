@@ -55,7 +55,7 @@ public sealed class RpcConnection : IDisposable
 
     /// <summary>
     /// </summary>
-    public async Task ReportErrorsWhileAsync(Func<Task> act, Boolean call_err_handle, CancellationToken extra_cancel_token)
+    public async Task ReportErrorsWhileAsync(Func<Task> act)
     {
         try
         {
@@ -63,28 +63,6 @@ public sealed class RpcConnection : IDisposable
         }
         catch (Exception ex)
         {
-            Boolean ShouldCallErrHandle()
-            {
-                if (!call_err_handle)
-                    return false;
-
-                if (!this.IsConnected)
-                    return false;
-
-                if (this.cancel_token.IsCancellationRequested || extra_cancel_token.IsCancellationRequested)
-                {
-                    if (ex.AreAllNestedExceptionsOfType<OperationCanceledException>())
-                        return false;
-                }
-
-                if (ex is RpcConnectionReturnedErrorException)
-                    return false;
-
-                return true;
-            }
-            if (ShouldCallErrHandle())
-                Err.Handle($"Error while using {this}: {ex}");
-
             Err.HandleDuring(() => this.ReportError(error_message: $"{ex}\n--- End of stack trace from remote {this} ---"));
             this.had_error = true;
             throw;
@@ -93,19 +71,19 @@ public sealed class RpcConnection : IDisposable
 
     /// <summary>
     /// </summary>
-    public void ReportErrorsWhile(Action act, Boolean call_err_handle, CancellationToken extra_cancel_token) =>
-        this.ReportErrorsWhileAsync(() => { act.Invoke(); return Task.CompletedTask; }, call_err_handle, extra_cancel_token).GetAwaiter().GetResult();
+    public void ReportErrorsWhile(Action act) =>
+        this.ReportErrorsWhileAsync(() => { act.Invoke(); return Task.CompletedTask; }).GetAwaiter().GetResult();
 
     /// <summary>
     /// </summary>
     public void WriteMessage(Action<BinaryWriter, CancellationToken> write_payload) =>
-        this.ReportErrorsWhile(() => this.Write(EPacketKind.Message, write_payload), call_err_handle: true, CancellationToken.None);
+        this.ReportErrorsWhile(() => this.Write(EPacketKind.Message, write_payload));
 
     /// <summary>
     /// </summary>
     public async Task ReadMessageAsync(Action<BinaryReader, CancellationToken> read_payload, CancellationToken read_cancel_token)
     {
-        await this.ReportErrorsWhileAsync(() => this.ReadAsync(on_finish: () => throw new InvalidDataException($"{this}: Finished when expected to read a message"), on_message: read_payload, read_cancel_token), call_err_handle: true, extra_cancel_token: read_cancel_token);
+        await this.ReportErrorsWhileAsync(() => this.ReadAsync(on_finish: () => throw new InvalidDataException($"{this}: Finished when expected to read a message"), on_message: read_payload, read_cancel_token));
         this.cancel_token.ThrowIfCancellationRequested();
     }
 
@@ -114,7 +92,7 @@ public sealed class RpcConnection : IDisposable
     public async Task<T> ReadMessageAsync<T>(Func<BinaryReader, CancellationToken, T> read_payload, CancellationToken read_cancel_token)
     {
         var result = default(ValueTuple<T>?);
-        await this.ReportErrorsWhileAsync(() => this.ReadAsync(on_finish: () => throw new InvalidDataException($"{this}: Finished when expected to read a message"), on_message: (br, cancel_token) => result = new(read_payload(br, cancel_token)), read_cancel_token), call_err_handle: true, extra_cancel_token: read_cancel_token);
+        await this.ReportErrorsWhileAsync(() => this.ReadAsync(on_finish: () => throw new InvalidDataException($"{this}: Finished when expected to read a message"), on_message: (br, cancel_token) => result = new(read_payload(br, cancel_token)), read_cancel_token));
         return (result ?? throw null!).Item1;
     }
 
