@@ -29,6 +29,12 @@ public abstract class DependentValueSourceBase
             dep.MarkInvalidated();
     }
 
+    private protected void MarkDepsValidated()
+    {
+        foreach (var dep in this.deps.ToArray())
+            dep.MarkValidated();
+    }
+
     private protected void RequestDepsRecompute(DependentValueGroup.GroupComputingContext context)
     {
         foreach (var dep in this.deps.ToArray())

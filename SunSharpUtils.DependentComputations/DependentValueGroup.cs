@@ -43,7 +43,7 @@ public sealed class DependentValueGroup(String name)
     /// <param name="name">Only used for <see cref="DependentValue{T}.ToString()"/>, for debugging and logging purposes</param>
     /// <param name="compute_func"></param>
     /// <param name="initial_requirements">Compute function will not be called until all of these values have been computed</param>
-    /// <param name="on_updated">Use this if <see cref="IsUpdating"/> is true, but you want to capture the initial value. Otherwise prefer <see cref="DependentValue{T}.OnUpdated"/></param>
+    /// <param name="on_updated">Use this if <see cref="IsUpdating"/> is true, but you want to capture the initial value. Otherwise prefer <see cref="DependentValueSource{T}.OnUpdated"/></param>
     /// <param name="equality_comparer"></param>
     /// <returns></returns>
     public DependentValue<T> AddValue<T>(String name, ComputeFunc<T> compute_func, IDependentValue?[] initial_requirements, Action<T>? on_updated = null, IEqualityComparer<T>? equality_comparer = null)

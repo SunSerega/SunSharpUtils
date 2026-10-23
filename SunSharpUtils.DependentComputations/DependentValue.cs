@@ -17,6 +17,7 @@ public interface IDependentValue
     internal IDependentValue? TryRecompute(DependentValueGroup.GroupComputingContext context);
     internal void SetComputeException(Exception ex);
     internal void MarkInvalidated();
+    internal void MarkValidated();
     internal void RequestRecompute(DependentValueGroup.GroupComputingContext context);
 }
 
@@ -35,7 +36,7 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
     private readonly List<DependentValueSourceBase> current_direct_sources = []; // NOTE: Only used for resetting is_value_missing/last_ex
     private IDependentValue[] next_compute_requirements;
     private Boolean is_invalidated = true; // NOTE: Can be invalidated but not missing value, if dependency didn't compute yet (incl. if it failed to compute)
-    private Boolean is_value_missing = true; 
+    private Boolean is_value_missing = true;
     private Exception? last_ex = null; // NOTE: Stays assigned until dependency changes
     private ValueTuple<T>? last_success_result = null; // NOTE: Can be not-null even if is_value_missing. Used for checking if value change event should fire
 
@@ -153,11 +154,14 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
             {
                 this.TriggerOnUpdated(result!);
                 this.RequestDepsRecompute(group_context);
-                this.last_success_result = new(result!);
-                this.is_invalidated = false;
+            }
+            else
+            {
+                this.MarkDepsValidated();
             }
 
             this.is_value_missing = false;
+            this.is_invalidated = false;
             this.last_success_result = new(result!);
         }
 
@@ -185,6 +189,14 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
         this.MarkDepsInvalidated();
     }
 
+    void IDependentValue.MarkValidated()
+    {
+        if (!this.is_invalidated)
+            return;
+        this.is_invalidated = false;
+        this.MarkDepsValidated();
+    }
+
     void IDependentValue.RequestRecompute(DependentValueGroup.GroupComputingContext context)
     {
         if (this.last_ex is not null)
@@ -193,7 +205,7 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
             this.is_value_missing = true;
         else
             return;
-        
+
         for (var i = this.current_direct_sources.Count-1; i >= 0; i--)
         {
             var source = this.current_direct_sources[i];
