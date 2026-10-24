@@ -99,7 +99,7 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
     IDependentValue? IDependentValue.TryRecompute(DependentValueGroup.GroupComputingContext group_context)
     {
         if (!this.is_value_missing)
-            throw new InvalidOperationException($"{this} is already computed");
+            return null;
         if (this.last_ex is not null)
             throw new DependenctValueComputeFuncThrewException(this, this.last_ex);
         if (this.current_direct_sources.Count != 0)
