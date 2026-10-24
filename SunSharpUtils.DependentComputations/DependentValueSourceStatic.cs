@@ -1,5 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading;
+
+using SunSharpUtils.Threading;
 
 namespace SunSharpUtils.DependentComputations;
 
@@ -12,6 +15,7 @@ namespace SunSharpUtils.DependentComputations;
 public sealed class DependentValueSourceStatic<T>(String name, IEqualityComparer<T>? equality_comparer = null) : DependentValueSource<T>
 {
     private readonly IEqualityComparer<T> equality_comparer = equality_comparer ?? EqualityComparer<T>.Default;
+    private readonly Lock l_value = new();
 
     /// <summary>
     /// Used only for <see cref="ToString"/>, for debugging and logging purposes
@@ -22,9 +26,10 @@ public sealed class DependentValueSourceStatic<T>(String name, IEqualityComparer
     /// </summary>
     public required T Value
     {
-        get;
+        get => this.l_value.LockedGet(() => field);
         set
         {
+            using var lock_scope = this.l_value.EnterScope();
             if (this.equality_comparer.Equals(field, value))
                 return;
             this.TriggerOnUpdated(value);

@@ -83,6 +83,7 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
     /// <returns></returns>
     public TResult CheckCurrentValue<TResult>(Func<T, TResult> on_value, Func<Exception, TResult> on_failed, Func<TResult> on_not_computed_yet)
     {
+        using var lock_scope = this.group.Lock.EnterScope();
         if (this.last_ex is not null)
             return on_failed(this.last_ex);
         if (this.is_invalidated)
@@ -199,6 +200,7 @@ public sealed class DependentValue<T> : DependentValueSource<T>, IDependentValue
 
     void IDependentValue.RequestRecompute(DependentValueGroup.GroupComputingContext context)
     {
+        using var lock_scope = this.group.Lock.EnterScope();
         if (this.last_ex is not null)
             this.last_ex = null;
         else if (!this.is_value_missing)

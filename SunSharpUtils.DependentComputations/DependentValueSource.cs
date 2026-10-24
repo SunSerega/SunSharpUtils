@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace SunSharpUtils.DependentComputations;
 
@@ -8,10 +9,12 @@ namespace SunSharpUtils.DependentComputations;
 /// </summary>
 public abstract class DependentValueSourceBase
 {
+    private readonly Lock l_deps = new();
     private readonly List<IDependentValue> deps = [];
 
     internal void AddDep(IDependentValue dep)
     {
+        using var lock_scope = this.l_deps.EnterScope();
         if (this.deps.Contains(dep))
             throw new InvalidOperationException($"Dependent value {dep} is already in the source's deps list");
         this.deps.Add(dep);
@@ -19,24 +22,28 @@ public abstract class DependentValueSourceBase
 
     internal void RemoveDep(IDependentValue dep)
     {
+        using var lock_scope = this.l_deps.EnterScope();
         if (!this.deps.Remove(dep))
             throw new InvalidOperationException($"Dependent value {dep} was not found in the source's deps list");
     }
 
     private protected void MarkDepsInvalidated()
     {
+        using var lock_scope = this.l_deps.EnterScope();
         foreach (var dep in this.deps.ToArray())
             dep.MarkInvalidated();
     }
 
     private protected void MarkDepsValidated()
     {
+        using var lock_scope = this.l_deps.EnterScope();
         foreach (var dep in this.deps.ToArray())
             dep.MarkValidated();
     }
 
     private protected void RequestDepsRecompute(DependentValueGroup.GroupComputingContext context)
     {
+        using var lock_scope = this.l_deps.EnterScope();
         foreach (var dep in this.deps.ToArray())
             dep.RequestRecompute(context);
         if (this.deps.Count != 0)

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 using SunSharpUtils.Ext.Linq;
 
@@ -17,6 +18,8 @@ namespace SunSharpUtils.DependentComputations;
 public sealed class DependentValueGroup(String name)
 {
     private readonly HashSet<IDependentValue> pending_update = [];
+    
+    internal Lock Lock { get; } = new();
 
     /// <summary>
     /// Used only for <see cref="ToString"/>, for debugging and logging purposes
@@ -48,6 +51,7 @@ public sealed class DependentValueGroup(String name)
     /// <returns></returns>
     public DependentValue<T> AddValue<T>(String name, ComputeFunc<T> compute_func, IDependentValue?[] initial_requirements, Action<T>? on_updated = null, IEqualityComparer<T>? equality_comparer = null)
     {
+        using var lock_scope = this.Lock.EnterScope();
         var value = new DependentValue<T>(this, name, compute_func, equality_comparer ?? EqualityComparer<T>.Default, initial_requirements.ToArrayWhere(r => r is not null)!);
         value.OnUpdated += on_updated;
         if (this.IsUpdating)
@@ -68,7 +72,11 @@ public sealed class DependentValueGroup(String name)
     /// <para/>
     /// Does nothing if <see cref="IsUpdating"/> is true
     /// </summary>
-    public void RecomputeChangesOnce() => this.RecomputeChangesOnce(expect_pending: false);
+    public void RecomputeChangesOnce()
+    {
+        using var lock_scope = this.Lock.EnterScope();
+        this.RecomputeChangesOnce(expect_pending: false);
+    }
 
     /// <summary>
     /// If true, all values in this group are recomputed immediately when their dependencies change
@@ -80,6 +88,8 @@ public sealed class DependentValueGroup(String name)
         get;
         set
         {
+            //TODO This can dead-lock if another group sets IsUpdating in another thread, and both groups have values dependent on another group
+            using var lock_scope = this.Lock.EnterScope();
             if (field == value)
                 return;
             field = value;
@@ -165,7 +175,8 @@ public sealed class DependentValueGroup(String name)
 
             while (this.need_update.Count != 0)
             {
-                TryCompute(this.need_update.First());
+                var chosen = this.need_update.First();
+                TryCompute(chosen);
 
                 void TryCompute(IDependentValue starting_v)
                 {
@@ -177,6 +188,8 @@ public sealed class DependentValueGroup(String name)
 
                     while (dep_chain.TryPop(out var v))
                     {
+                        using var lock_scope = v.Group.Lock.EnterScope();
+
                         if (!Err<DependenctValueComputeFuncThrewException>.TryCatch(() => v.TryRecompute(this), out var missing_dep, out var ex))
                         {
                             dep_chain.Push(v);
@@ -185,6 +198,7 @@ public sealed class DependentValueGroup(String name)
                             ReportNotComputable();
                             return;
                         }
+
                         if (missing_dep is not null)
                         {
                             dep_chain.Push(v);
@@ -203,6 +217,7 @@ public sealed class DependentValueGroup(String name)
                             dep_chain.Push(missing_dep);
                             continue;
                         }
+
                         // Could be not removed when v is from another group
                         this.need_update.Remove(v);
                         break;
