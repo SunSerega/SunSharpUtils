@@ -25,12 +25,24 @@ public static class ExceptionExt
 
     /// <summary>
     /// </summary>
-    public static Boolean AreAllNestedExceptionsOfType<TException>(this Exception root_ex)
-        where TException : Exception => root_ex.GetNestedExceptions().All(ex => ex is TException);
-
+    public static Boolean AreAllNestedExceptionsOfType<TException>(this Exception root_ex, Func<Boolean> on_empty)
+        where TException : Exception
+    {
+        var seq = root_ex.GetNestedExceptions();
+        var iter = seq.GetEnumerator();
+        if (!iter.MoveNext())
+            return on_empty();
+        while (true)
+        {
+            if (iter.Current is not TException)
+                return false;
+            if (!iter.MoveNext())
+                return true;
+        }
+    }
     /// <summary>
     /// </summary>
     public static Boolean IsOnlyNestedOpCanceledExceptions(this Exception root_ex, CancellationToken cancel_token) =>
-        cancel_token.IsCancellationRequested && root_ex.AreAllNestedExceptionsOfType<OperationCanceledException>();
+        cancel_token.IsCancellationRequested && root_ex.AreAllNestedExceptionsOfType<OperationCanceledException>(on_empty: () => false);
 
 }

@@ -20,11 +20,13 @@ public static class ErrExt
         return t.ContinueWith(
             t =>
             {
+                if (t.IsCompletedSuccessfully)
+                    return;
                 if (t.Exception?.InnerException is Exception ie)
                     Err.Handle(ie);
                 else
                     Err.Handle($"Task faulted, but no exception exists. Handler trace:\n{trace}");
-            }, TaskContinuationOptions.OnlyOnFaulted
+            }
         );
     }
 

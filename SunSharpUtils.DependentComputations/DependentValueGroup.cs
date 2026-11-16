@@ -7,6 +7,8 @@ using SunSharpUtils.Ext.Linq;
 
 namespace SunSharpUtils.DependentComputations;
 
+//TODO Beside manual update and live updates, another mode that makes a lot of sense is using DelayedUpdater to batch updates in another thread with a delay
+
 /// <summary>
 /// Represents a group of <see cref="DependentValue{T}"/>-s
 /// <para/>
