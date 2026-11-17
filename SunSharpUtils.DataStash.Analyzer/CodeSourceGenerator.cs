@@ -23,7 +23,7 @@ internal sealed class CodeSourceGenerator
         {
             if (!String.IsNullOrEmpty(line))
             {
-                gen.sb.Append(new String('\t', gen.block_depth));
+                gen.sb.Append('\t', gen.block_depth);
                 gen.sb.Append(line);
             }
             gen.sb.Append('\n');
@@ -36,14 +36,14 @@ internal sealed class CodeSourceGenerator
         var gen = this;
 
         if (open_brace is not null)
-            gen += $"{open_brace}";
+            gen += open_brace;
         gen.block_depth += 1;
 
         act(gen);
 
         gen.block_depth -= 1;
         if (close_brace is not null)
-            gen += $"{close_brace}";
+            gen += close_brace;
 
         return gen;
     }

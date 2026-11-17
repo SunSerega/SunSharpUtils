@@ -10,4 +10,5 @@ namespace SunSharpUtils.DataStash;
 
 /// <summary>
 /// </summary>
-public sealed class RpcConnectionReturnedErrorException(RpcConnection connection, String error_message) : Exception($"{connection}: Error from remote: {error_message}");
+public sealed class RpcConnectionReturnedErrorException(RpcConnection connection, String error_message)
+    : Exception($"{connection}: Error from remote: {error_message}"), IRpcConnectionNonRetryableException;

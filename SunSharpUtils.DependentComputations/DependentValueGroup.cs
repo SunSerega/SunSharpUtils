@@ -20,7 +20,7 @@ namespace SunSharpUtils.DependentComputations;
 public sealed class DependentValueGroup(String name)
 {
     private readonly HashSet<IDependentValue> pending_update = [];
-    
+
     internal Lock Lock { get; } = new();
 
     /// <summary>
